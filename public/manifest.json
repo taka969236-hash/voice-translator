@@ -1,0 +1,40 @@
+{
+  "name": "音声リアルタイム翻訳",
+  "short_name": "音声翻訳",
+  "description": "話すだけでベトナム語・ミャンマー語に同時翻訳",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#4f46e5",
+  "orientation": "any",
+  "lang": "ja",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "翻訳を開始",
+      "url": "/",
+      "description": "音声入力で翻訳を開始"
+    }
+  ]
+}
