@@ -186,6 +186,30 @@
     .interim { color: var(--muted); font-style: italic; }
     .ph { color: #cbd5e1; font-style: italic; font-size: 0.92rem; }
 
+    /* ── Auto / Manual toggle ── */
+    .mode-toggle { display: flex; border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+    .mode-btn { padding: 5px 14px; border: none; background: transparent; cursor: pointer; font-size: 0.78rem; font-weight: 700; color: var(--muted); transition: all 0.15s; letter-spacing: 0.03em; }
+    .mode-btn.active { background: var(--primary); color: white; }
+
+    /* ── Manual mode ── */
+    .transcript-edit {
+      width: 100%; min-height: 80px; padding: 12px 14px;
+      border: 1.5px solid var(--primary); border-radius: 12px;
+      font-size: 1.05rem; font-family: inherit; line-height: 1.75;
+      resize: vertical; outline: none; color: var(--text);
+      transition: box-shadow 0.2s;
+    }
+    .transcript-edit:focus { box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+    .interim-hint { color: var(--muted); font-style: italic; font-size: 0.85rem; margin-top: 6px; min-height: 18px; }
+    .btn-translate {
+      margin-top: 10px; width: 100%; padding: 12px;
+      background: var(--primary); color: white; border: none;
+      border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer;
+      transition: background 0.2s; min-height: 44px;
+    }
+    .btn-translate:hover { background: var(--primary-dark); }
+    .btn-translate:active { transform: scale(0.98); }
+
     /* ── Translations ── */
     .grid {
       display: grid;
@@ -336,9 +360,27 @@
 
 <!-- ── Transcript ── -->
 <div class="card">
-  <div class="label">📝 認識テキスト</div>
-  <div id="transcript" class="transcript-box">
-    <span class="ph">録音を開始すると、ここにテキストが表示されます…</span>
+  <div class="label" style="justify-content:space-between;flex-wrap:wrap;gap:8px;">
+    <span>📝 認識テキスト</span>
+    <div class="mode-toggle">
+      <button id="modeAuto" class="mode-btn active" onclick="setMode('auto')">自動</button>
+      <button id="modeManual" class="mode-btn" onclick="setMode('manual')">手動</button>
+    </div>
+  </div>
+
+  <!-- 自動モード -->
+  <div id="transcriptAuto">
+    <div id="transcript" class="transcript-box">
+      <span class="ph">録音を開始すると、ここにテキストが表示されます…</span>
+    </div>
+  </div>
+
+  <!-- 手動モード -->
+  <div id="transcriptManual" style="display:none">
+    <textarea id="transcriptEdit" class="transcript-edit"
+      placeholder="録音後にここで修正・追記できます…"></textarea>
+    <div id="interimHint" class="interim-hint"></div>
+    <button class="btn-translate" onclick="manualTranslate()">翻訳する</button>
   </div>
 </div>
 
@@ -440,6 +482,17 @@ let isRecording = false;
 let finalText = '';
 let debounceTimer = null;
 let lastTranslated = '';
+let mode = 'auto'; // 'auto' | 'manual'
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('modeAuto').classList.toggle('active', m === 'auto');
+  document.getElementById('modeManual').classList.toggle('active', m === 'manual');
+  document.getElementById('transcriptAuto').style.display  = m === 'auto'   ? '' : 'none';
+  document.getElementById('transcriptManual').style.display = m === 'manual' ? '' : 'none';
+  if (isRecording) stopRecording();
+  finalText = ''; lastTranslated = '';
+}
 
 function showError(msg, persist) {
   const el = document.getElementById('errorBar');
@@ -467,12 +520,14 @@ function initRecognition() {
       const t = e.results[i][0].transcript;
       if (e.results[i].isFinal) {
         finalText += t;
-        scheduleTranslate();
+        if (mode === 'auto') scheduleTranslate();
+        else document.getElementById('transcriptEdit').value = finalText;
       } else {
         interim += t;
       }
     }
-    renderTranscript(finalText, interim);
+    if (mode === 'auto') renderTranscript(finalText, interim);
+    else document.getElementById('interimHint').textContent = interim ? `認識中: ${interim}` : '';
   };
 
   recognition.onerror = e => {
@@ -516,11 +571,17 @@ function renderTranscript(final, interim) {
 }
 
 function scheduleTranslate() {
+  if (mode !== 'auto') return;
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     const t = finalText.trim();
     if (t && t !== lastTranslated) doTranslate(t);
   }, 900);
+}
+
+function manualTranslate() {
+  const text = document.getElementById('transcriptEdit').value.trim();
+  if (text) doTranslate(text);
 }
 
 async function doTranslate(text) {
@@ -558,7 +619,12 @@ function startRecording() {
   if (!initRecognition()) return;
 
   finalText = ''; lastTranslated = '';
-  document.getElementById('transcript').innerHTML = '<span class="ph">録音中… 話しかけてください</span>';
+  if (mode === 'auto') {
+    document.getElementById('transcript').innerHTML = '<span class="ph">録音中… 話しかけてください</span>';
+  } else {
+    document.getElementById('transcriptEdit').value = '';
+    document.getElementById('interimHint').textContent = '';
+  }
   document.getElementById('vnText').className = 'trans-text ph';
   document.getElementById('vnText').textContent = '翻訳がここに表示されます';
   document.getElementById('mmText').className = 'trans-text ph';
@@ -576,8 +642,13 @@ function stopRecording() {
   if (recognition) { recognition.stop(); recognition = null; }
   document.getElementById('recordBtn').classList.remove('recording');
   document.getElementById('btnLabel').textContent = '録音開始';
-  const t = finalText.trim();
-  if (t && t !== lastTranslated) doTranslate(t);
+  if (mode === 'auto') {
+    const t = finalText.trim();
+    if (t && t !== lastTranslated) doTranslate(t);
+  } else {
+    const hint = document.getElementById('interimHint');
+    if (finalText.trim()) hint.textContent = '✏️ 修正・追記後に「翻訳する」を押してください';
+  }
 }
 
 document.getElementById('srcLang').addEventListener('change', () => {
