@@ -227,6 +227,17 @@
     .trans-card.mm { background: linear-gradient(135deg,#fffbeb,#fefce8); border: 1.5px solid #fde68a; }
 
     .lang-header { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
+
+    .speak-btn {
+      margin-left: auto; background: none; border: none;
+      cursor: pointer; padding: 4px; border-radius: 6px;
+      color: inherit; opacity: 0.45; transition: opacity 0.2s, transform 0.1s;
+      display: flex; align-items: center; flex-shrink: 0;
+    }
+    .speak-btn:hover { opacity: 0.9; }
+    .speak-btn:active { transform: scale(0.9); }
+    .speak-btn.speaking { opacity: 1; animation: speakPulse 1s ease-in-out infinite; }
+    @keyframes speakPulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
     .flag { font-size: 1.2rem; }
     .lang-name { font-weight: 700; font-size: 0.82rem; }
     .vn .lang-name { color: #dc2626; }
@@ -397,6 +408,9 @@
       <div class="lang-header">
         <span class="flag">🇻🇳</span>
         <span class="lang-name">ベトナム語 (Tiếng Việt)</span>
+        <button id="speakVn" class="speak-btn" onclick="speak('vnText','vi-VN','speakVn')" title="読み上げ">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
       </div>
       <div id="vnText" class="trans-text ph">翻訳がここに表示されます</div>
     </div>
@@ -404,6 +418,9 @@
       <div class="lang-header">
         <span class="flag">🇲🇲</span>
         <span class="lang-name">ミャンマー語 (မြန်မာဘာသာ)</span>
+        <button id="speakMm" class="speak-btn" onclick="speak('mmText','my','speakMm')" title="読み上げ">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
       </div>
       <div id="mmText" class="trans-text ph">ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်</div>
     </div>
@@ -654,6 +671,33 @@ function stopRecording() {
 document.getElementById('srcLang').addEventListener('change', () => {
   if (recognition) recognition.lang = document.getElementById('srcLang').value;
 });
+
+/* ── Text-to-Speech ── */
+function speak(textId, lang, btnId) {
+  if (!window.speechSynthesis) return;
+
+  const btn  = document.getElementById(btnId);
+  const text = document.getElementById(textId).textContent.trim();
+  const placeholder = ['翻訳がここに表示されます', 'ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်', '—', ''];
+  if (placeholder.includes(text)) return;
+
+  // 再押しで停止
+  if (speechSynthesis.speaking) {
+    speechSynthesis.cancel();
+    document.querySelectorAll('.speak-btn').forEach(b => b.classList.remove('speaking'));
+    return;
+  }
+
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang  = lang;
+  utt.rate  = 0.88;
+
+  utt.onstart = () => btn.classList.add('speaking');
+  utt.onend   = () => btn.classList.remove('speaking');
+  utt.onerror = () => btn.classList.remove('speaking');
+
+  speechSynthesis.speak(utt);
+}
 
 /* ── Init ── */
 </script>
