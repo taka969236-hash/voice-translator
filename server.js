@@ -92,6 +92,29 @@ app.get('/api/netinfo', (req, res) => {
   res.json({ ips: getLocalIPs(), port: PORT, protocol: proto });
 });
 
+/* ── TTS プロキシ (ミャンマー語など内蔵ボイスのない言語用) ── */
+app.get('/api/tts', async (req, res) => {
+  const { text, lang } = req.query;
+  if (!text || !lang) return res.status(400).send('Missing params');
+
+  const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=gtx&q=${encodeURIComponent(text.slice(0, 200))}`;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer':    'https://translate.google.com',
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.status(502).send('TTS unavailable');
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch (err) {
+    res.status(502).send('TTS error');
+  }
+});
+
 /* ── 翻訳 API ── */
 app.post('/api/translate', async (req, res) => {
   const { text, sourceLang } = req.body;
