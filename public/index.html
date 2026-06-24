@@ -499,6 +499,7 @@ let isRecording = false;
 let finalText = '';
 let debounceTimer = null;
 let lastTranslated = '';
+let translateController = null;
 let mode = 'auto'; // 'auto' | 'manual'
 
 function setMode(m) {
@@ -593,7 +594,7 @@ function scheduleTranslate() {
   debounceTimer = setTimeout(() => {
     const t = finalText.trim();
     if (t && t !== lastTranslated) doTranslate(t);
-  }, 900);
+  }, 150);
 }
 
 function manualTranslate() {
@@ -604,21 +605,28 @@ function manualTranslate() {
 async function doTranslate(text) {
   if (!text) return;
   lastTranslated = text;
-  document.getElementById('spinner').classList.add('show');
 
+  // 前のリクエストをキャンセルして即座に新しいリクエストを開始
+  if (translateController) translateController.abort();
+  translateController = new AbortController();
+
+  document.getElementById('spinner').classList.add('show');
   try {
     const resp = await fetch('/api/translate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, sourceLang: document.getElementById('srcLang').value }),
+      signal: translateController.signal,
     });
     const data = await resp.json();
     if (!resp.ok) { showError(data.error || '翻訳エラー'); return; }
     setTranslation('vnText', data.vietnamese);
     setTranslation('mmText', data.burmese);
   } catch (err) {
+    if (err.name === 'AbortError') return; // 新しいリクエストで上書き中、無視
     showError('接続エラー: ' + err.message);
   } finally {
+    translateController = null;
     document.getElementById('spinner').classList.remove('show');
   }
 }
