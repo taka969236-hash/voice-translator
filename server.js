@@ -117,17 +117,18 @@ app.get('/api/tts', async (req, res) => {
 
 /* ── 翻訳 API ── */
 app.post('/api/translate', async (req, res) => {
-  const { text, sourceLang } = req.body;
+  const { text, from } = req.body;
   if (!text?.trim()) return res.status(400).json({ error: 'テキストが必要です' });
 
-  const src = SRC_MAP[sourceLang] || 'auto';
+  const ALL = ['ja', 'vi', 'my'];
+  const src = ALL.includes(from) ? from : 'auto';
+  const targets = ALL.filter(l => l !== from);
 
   try {
-    const [vietnamese, burmese] = await Promise.all([
-      translateGoogle(src, 'vi', text.trim()),
-      translateGoogle(src, 'my', text.trim()),
-    ]);
-    res.json({ vietnamese, burmese });
+    const entries = await Promise.all(
+      targets.map(async tgt => [tgt, await translateGoogle(src, tgt, text.trim())])
+    );
+    res.json(Object.fromEntries(entries));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
