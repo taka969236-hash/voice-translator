@@ -3,12 +3,18 @@ const express    = require('express');
 const https      = require('https');
 const QRCode     = require('qrcode');
 const selfsigned = require('selfsigned');
+const Groq       = require('groq-sdk');
 const path = require('path');
 const os   = require('os');
 const fs   = require('fs');
 
 /* ── 本番(Render) か ローカルか ── */
 const IS_PROD = !!(process.env.RENDER || process.env.NODE_ENV === 'production');
+
+/* ── Groq (ミャンマー語音声認識) ── */
+const groq = process.env.GROQ_API_KEY
+  ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+  : null;
 
 /* ── Google Translate 非公式 API (無料・キー不要) ── */
 const SRC_MAP = {
@@ -114,6 +120,28 @@ app.get('/api/tts', async (req, res) => {
     res.status(502).send('TTS error');
   }
 });
+
+/* ── 音声認識 API (Groq Whisper) ── */
+app.post('/api/transcribe',
+  express.raw({ type: '*/*', limit: '25mb' }),
+  async (req, res) => {
+    if (!groq) return res.status(503).json({ error: 'GROQ_API_KEY が未設定です' });
+    const lang = req.query.lang || 'my';
+    try {
+      const mimeType = req.headers['content-type'] || 'audio/webm';
+      const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+      const file = new File([req.body], `rec.${ext}`, { type: mimeType });
+      const result = await groq.audio.transcriptions.create({
+        file,
+        model: 'whisper-large-v3',
+        language: lang,
+      });
+      res.json({ text: result.text });
+    } catch(err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
 
 /* ── 翻訳 API ── */
 app.post('/api/translate', async (req, res) => {

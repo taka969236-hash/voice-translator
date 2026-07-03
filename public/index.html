@@ -368,11 +368,12 @@
       <button class="btn-translate-sm" onclick="manualTranslate('my')" style="font-family:'Noto Sans Myanmar',sans-serif;">ဘာသာပြန်မည်</button>
     </div>
 
-    <button class="btn-mic" id="mic-my" onclick="openMyInput()">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-      <span style="font-family:'Noto Sans Myanmar',sans-serif;">ရိုက်ထည့်မည်</span>
+    <button class="btn-mic" id="mic-my" onclick="toggleMyRec()">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+      <span class="mic-dot"></span>
+      <span id="mic-label-my" style="font-family:'Noto Sans Myanmar',sans-serif;">ပြောဆိုမည်</span>
     </button>
-    <div style="font-size:0.72rem;color:var(--muted);text-align:center;">※ 音声入力非対応のためテキスト入力</div>
+    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">🤖 Groq Whisper による音声認識</div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> 翻訳中…</div>
@@ -505,15 +506,97 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
 function toggleRec(lang) { st[lang].isRecording ? stopRec(lang) : startRec(lang); }
 
-function openMyInput() {
-  document.getElementById('auto-my').style.display = 'none';
-  document.getElementById('manual-my').style.display = '';
-  document.getElementById('edit-my').focus();
+/* ─── Myanmar: MediaRecorder + Groq Whisper ─── */
+let myIsRecording = false;
+let myRecorder    = null;
+let myChunks      = [];
+
+function toggleMyRec() {
+  if (myIsRecording) {
+    myIsRecording = false;
+    if (myRecorder && myRecorder.state !== 'inactive') myRecorder.stop();
+  } else {
+    ALL_LANGS.forEach(l => { if (st[l].isRecording) stopRec(l); });
+    myIsRecording = true;
+    startMyRec();
+  }
+}
+
+function startMyRec() {
+  myChunks = [];
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(stream => {
+      myRecorder = new MediaRecorder(stream);
+      myRecorder.ondataavailable = e => { if (e.data.size > 0) myChunks.push(e.data); };
+      myRecorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (myChunks.length > 0) sendMyAudio();
+      };
+      myRecorder.start();
+      document.getElementById('mic-my').classList.add('recording');
+      document.getElementById('panel-my').classList.add('active');
+      document.getElementById('mic-label-my').textContent = 'ရပ်မည်';
+      if (mode === 'auto') {
+        document.getElementById('auto-my').style.display = '';
+        document.getElementById('manual-my').style.display = 'none';
+        document.getElementById('transcript-my').innerHTML = `<span class="ph">${PH_REC['my']}</span>`;
+      }
+    })
+    .catch(err => {
+      myIsRecording = false;
+      showErr('my', 'マイクエラー: ' + err.message);
+    });
+}
+
+async function sendMyAudio() {
+  document.getElementById('mic-my').classList.remove('recording');
+  document.getElementById('panel-my').classList.remove('active');
+  document.getElementById('mic-label-my').textContent = 'ပြောဆိုမည်';
+
+  const blob = new Blob(myChunks, { type: myRecorder?.mimeType || 'audio/webm' });
+  document.getElementById('transcript-my').innerHTML = '<span class="ph">🤖 認識中…</span>';
+  document.getElementById('spinner-my').classList.add('show');
+
+  try {
+    const resp = await fetch('/api/transcribe?lang=my', {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type || 'audio/webm' },
+      body: blob,
+    });
+    const data = await resp.json();
+    if (!resp.ok) { showErr('my', data.error || '認識エラー'); return; }
+    const text = (data.text || '').trim();
+    if (!text) { showErr('my', '音声が認識できませんでした'); return; }
+
+    if (mode === 'auto') {
+      document.getElementById('auto-my').style.display = '';
+      document.getElementById('manual-my').style.display = 'none';
+      document.getElementById('transcript-my').textContent = text;
+      doTranslate('my', text);
+    } else {
+      document.getElementById('auto-my').style.display = 'none';
+      document.getElementById('manual-my').style.display = '';
+      document.getElementById('edit-my').value = text;
+      document.getElementById('hint-my').textContent = '✏️ 修正後に翻訳ボタンを押してください';
+    }
+  } catch(err) {
+    showErr('my', '送信エラー: ' + err.message);
+    document.getElementById('transcript-my').innerHTML = `<span class="ph">${PH_INPUT['my']}</span>`;
+  } finally {
+    document.getElementById('spinner-my').classList.remove('show');
+  }
 }
 
 function startRec(lang) {
-  // Stop any other active panel
   ALL_LANGS.forEach(l => { if (l!==lang && st[l].isRecording) stopRec(l); });
+  // Stop Myanmar recording silently (clear chunks to skip sendMyAudio)
+  if (myIsRecording) {
+    myIsRecording = false; myChunks = [];
+    if (myRecorder && myRecorder.state !== 'inactive') myRecorder.stop();
+    document.getElementById('mic-my').classList.remove('recording');
+    document.getElementById('panel-my').classList.remove('active');
+    document.getElementById('mic-label-my').textContent = 'ပြောဆိုမည်';
+  }
   hideErr(lang);
 
   const s = st[lang];
