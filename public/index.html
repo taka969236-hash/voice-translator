@@ -373,7 +373,7 @@
       <span class="mic-dot"></span>
       <span id="mic-label-my" style="font-family:'Noto Sans Myanmar',sans-serif;">ပြောဆိုမည်</span>
     </button>
-    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">🤖 Groq Whisper による音声認識</div>
+    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">🤖 Whisper (ブラウザ内処理・初回150MB)</div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> 翻訳中…</div>
@@ -554,20 +554,11 @@ async function sendMyAudio() {
   document.getElementById('mic-label-my').textContent = 'ပြောဆိုမည်';
 
   const blob = new Blob(myChunks, { type: myRecorder?.mimeType || 'audio/webm' });
-  document.getElementById('transcript-my').innerHTML = '<span class="ph">🤖 認識中…</span>';
   document.getElementById('spinner-my').classList.add('show');
 
   try {
-    const resp = await fetch('/api/transcribe?lang=my', {
-      method: 'POST',
-      headers: { 'Content-Type': blob.type || 'audio/webm' },
-      body: blob,
-    });
-    const data = await resp.json();
-    if (!resp.ok) { showErr('my', data.error || '認識エラー'); return; }
-    const text = (data.text || '').trim();
+    const text = (await transcribeMy(blob)).trim();
     if (!text) { showErr('my', '音声が認識できませんでした'); return; }
-
     if (mode === 'auto') {
       document.getElementById('auto-my').style.display = '';
       document.getElementById('manual-my').style.display = 'none';
@@ -580,11 +571,52 @@ async function sendMyAudio() {
       document.getElementById('hint-my').textContent = '✏️ 修正後に翻訳ボタンを押してください';
     }
   } catch(err) {
-    showErr('my', '送信エラー: ' + err.message);
+    showErr('my', '認識エラー: ' + err.message);
     document.getElementById('transcript-my').innerHTML = `<span class="ph">${PH_INPUT['my']}</span>`;
   } finally {
     document.getElementById('spinner-my').classList.remove('show');
   }
+}
+
+/* ─── Whisper (transformers.js ブラウザ内推論) ─── */
+let _whisperPipe = null;
+
+async function transcribeMy(blob) {
+  if (!_whisperPipe) {
+    document.getElementById('transcript-my').innerHTML =
+      '<span class="ph">📥 初回のみモデル読込中（約150MB）…</span>';
+    const { pipeline, env } = await import(
+      'https://cdn.jsdelivr.net/npm/@xenova/transformers@2'
+    );
+    env.allowLocalModels = false;
+    _whisperPipe = await pipeline(
+      'automatic-speech-recognition',
+      'Xenova/whisper-small',
+      {
+        progress_callback: ({ status, progress, file }) => {
+          if (status === 'progress' && progress != null) {
+            document.getElementById('transcript-my').innerHTML =
+              `<span class="ph">📥 ${(file||'').split('/').pop()} ${Math.round(progress)}%…</span>`;
+          }
+        }
+      }
+    );
+  }
+
+  document.getElementById('transcript-my').innerHTML = '<span class="ph">🤖 認識中…</span>';
+
+  const ab  = await blob.arrayBuffer();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  const buf = await ctx.decodeAudioData(ab);
+  const samples = buf.getChannelData(0);
+  ctx.close();
+
+  const result = await _whisperPipe(samples, {
+    language: 'burmese',
+    task: 'transcribe',
+    chunk_length_s: 30,
+  });
+  return result.text;
 }
 
 function startRec(lang) {
