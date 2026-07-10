@@ -36,6 +36,39 @@
       -webkit-tap-highlight-color: transparent;
     }
 
+    /* ── PIN Screen ── */
+    #pinScreen {
+      position: fixed; inset: 0; z-index: 1000;
+      background: var(--bg);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pin-card {
+      background: var(--surface); border-radius: 20px;
+      padding: 36px 28px; text-align: center;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.14);
+      width: 100%; max-width: 320px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .pin-logo { font-size: 2.6rem; }
+    .pin-card h2 { font-size: 1.18rem; font-weight: 700; color: var(--primary); }
+    .pin-card p { color: var(--muted); font-size: 0.84rem; }
+    #pinInput {
+      width: 100%; padding: 13px 16px; font-size: 1.5rem;
+      text-align: center; letter-spacing: 0.4em;
+      border: 2px solid var(--border); border-radius: 10px;
+      outline: none; color: var(--text); background: #f8fafc;
+      font-family: monospace;
+    }
+    #pinInput:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,0.1); }
+    #pinBtn {
+      width: 100%; padding: 13px; background: var(--primary); color: white;
+      border: none; border-radius: 10px; font-size: 1rem; font-weight: 600;
+      cursor: pointer; transition: background 0.2s;
+    }
+    #pinBtn:hover { background: var(--primary-dark); }
+    #pinBtn:disabled { opacity: 0.6; cursor: not-allowed; }
+    #pinError { color: #dc2626; font-size: 0.82rem; min-height: 18px; }
+
     /* ── Header ── */
     header {
       width: 100%; max-width: 1100px;
@@ -44,7 +77,14 @@
     }
     .title-group h1 { font-size: clamp(1.1rem, 4vw, 1.4rem); font-weight: 700; color: var(--primary); }
     .title-group p  { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
+    .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .badge { font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 11px; border-radius: 8px; border: 1.5px solid var(--border); white-space: nowrap; }
+    #logoutBtn {
+      font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 11px;
+      border-radius: 8px; border: 1.5px solid var(--border); cursor: pointer;
+      white-space: nowrap; transition: all 0.15s;
+    }
+    #logoutBtn:hover { border-color: var(--danger); color: var(--danger); }
 
     /* ── Net Card ── */
     .net-card {
@@ -178,6 +218,37 @@
     .panel-error { display: none; background: #fef2f2; border: 1.5px solid #fecaca; color: #dc2626; border-radius: 8px; padding: 7px 10px; font-size: 0.78rem; }
     .panel-error.show { display: block; }
 
+    /* ── History Panel ── */
+    .history-card {
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: 0 2px 16px rgba(0,0,0,0.07);
+      width: 100%; max-width: 1100px; margin-bottom: 12px; overflow: hidden;
+    }
+    .history-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 16px; cursor: pointer; user-select: none;
+      font-size: 0.88rem; font-weight: 700; color: var(--text);
+      transition: background 0.15s;
+    }
+    .history-header:hover { background: #f8fafc; }
+    .hist-actions { display: flex; gap: 7px; align-items: center; }
+    .hist-btn {
+      padding: 5px 10px; border: 1.5px solid var(--border); background: white;
+      border-radius: 7px; font-size: 0.74rem; cursor: pointer; color: var(--muted);
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .hist-btn:hover { border-color: var(--primary); color: var(--primary); }
+    #histList { padding: 0 16px 12px; max-height: 360px; overflow-y: auto; }
+    .hist-entry { border-bottom: 1px solid var(--border); padding: 10px 0; }
+    .hist-entry:last-child { border-bottom: none; }
+    .hist-source {
+      font-size: 0.86rem; font-weight: 600; margin-bottom: 5px;
+      display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+    }
+    .hist-time { font-size: 0.68rem; color: var(--muted); font-weight: 400; }
+    .hist-trans { font-size: 0.82rem; color: var(--muted); display: flex; align-items: baseline; gap: 5px; margin-bottom: 2px; padding-left: 4px; }
+    .hist-empty { color: var(--muted); font-size: 0.84rem; padding: 20px 0; text-align: center; }
+
     /* ── Install Banner ── */
     #installBanner {
       display: none; position: fixed; bottom: max(16px, calc(12px + var(--safe-bottom)));
@@ -196,6 +267,19 @@
 </head>
 <body>
 
+<!-- ── PIN 認証画面 ── -->
+<div id="pinScreen">
+  <div class="pin-card">
+    <div class="pin-logo">🎤</div>
+    <h2>同時通訳 · 3言語</h2>
+    <p>PINコードを入力してください</p>
+    <input type="password" id="pinInput" maxlength="8" inputmode="numeric" pattern="[0-9]*"
+      placeholder="● ● ● ● ● ● ● ●" autocomplete="off" />
+    <button id="pinBtn" onclick="submitPin()">ログイン</button>
+    <div id="pinError"></div>
+  </div>
+</div>
+
 <!-- ── Install Banner ── -->
 <div id="installBanner">
   <span>📱 ホーム画面に追加してアプリとして使えます</span>
@@ -209,7 +293,10 @@
     <h1>🎤 同時通訳 · 3言語</h1>
     <p>日本語・ベトナム語・ミャンマー語 相互リアルタイム翻訳</p>
   </div>
-  <span class="badge">⚡ Google Translate · ¥0/月</span>
+  <div class="header-right">
+    <span class="badge">🤖 Claude AI · コンテキスト10件</span>
+    <button id="logoutBtn" onclick="logout()">🔒 ログアウト</button>
+  </div>
 </header>
 
 <!-- ── Network QR ── -->
@@ -403,7 +490,20 @@
 
 </div><!-- .panel-grid -->
 
-<p class="footer-note">音声認識: Chrome / Edge / Android Chrome 対応 · Powered by Google Translate · コスト ¥0/月</p>
+<!-- ── 会話履歴パネル ── -->
+<div class="history-card">
+  <div class="history-header" onclick="toggleHistory()">
+    <span>📋 会話履歴</span>
+    <div class="hist-actions">
+      <button class="hist-btn" onclick="event.stopPropagation();resetContext()">🔄 文脈リセット</button>
+      <button class="hist-btn" onclick="event.stopPropagation();exportCSV()">⬇️ CSV</button>
+      <span id="histToggleIcon">▼</span>
+    </div>
+  </div>
+  <div id="histList" style="display:none;"></div>
+</div>
+
+<p class="footer-note">翻訳エンジン: Claude AI (Haiku) · コンテキスト直近10件 · 音声認識: Chrome/Edge/Android Chrome 対応</p>
 
 <script>
 /* ── Apple Touch Icon ── */
@@ -445,7 +545,75 @@ fetch('/api/netinfo').then(r=>r.json()).then(data => {
   }
 }).catch(()=>{});
 
-/* ─── Config ─── */
+/* ═══════════════════════════════════════
+   認証 / セッション管理
+═══════════════════════════════════════ */
+let sessionToken = localStorage.getItem('sessionToken') || null;
+
+async function checkSession() {
+  if (!sessionToken) { showPinScreen(); return; }
+  try {
+    const r = await fetch('/api/session', { headers: { 'X-Session-Token': sessionToken } });
+    if (r.ok) { hidePinScreen(); }
+    else { localStorage.removeItem('sessionToken'); sessionToken = null; showPinScreen(); }
+  } catch { showPinScreen(); }
+}
+
+function showPinScreen() {
+  document.getElementById('pinScreen').style.display = 'flex';
+  setTimeout(() => document.getElementById('pinInput').focus(), 100);
+}
+
+function hidePinScreen() {
+  document.getElementById('pinScreen').style.display = 'none';
+}
+
+async function submitPin() {
+  const pin = document.getElementById('pinInput').value.trim();
+  const errEl = document.getElementById('pinError');
+  errEl.textContent = '';
+  if (pin.length !== 8) { errEl.textContent = '8桁のPINを入力してください'; return; }
+  const btn = document.getElementById('pinBtn');
+  btn.disabled = true; btn.textContent = '認証中…';
+  try {
+    const r = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    const data = await r.json();
+    if (!r.ok) { errEl.textContent = data.error || '認証失敗'; document.getElementById('pinInput').value = ''; return; }
+    sessionToken = data.token;
+    localStorage.setItem('sessionToken', sessionToken);
+    hidePinScreen();
+  } catch(err) {
+    errEl.textContent = '接続エラー: ' + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = 'ログイン';
+  }
+}
+
+document.getElementById('pinInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitPin();
+  document.getElementById('pinError').textContent = '';
+});
+
+function handleAuthError() {
+  localStorage.removeItem('sessionToken');
+  sessionToken = null;
+  showPinScreen();
+}
+
+function logout() {
+  if (!confirm('ログアウトしますか？')) return;
+  localStorage.removeItem('sessionToken');
+  sessionToken = null;
+  showPinScreen();
+}
+
+/* ═══════════════════════════════════════
+   Config
+═══════════════════════════════════════ */
 const LANGS = {
   ja: { recog:'ja-JP', ttsCode:'ja-JP', serverTTS:false },
   vi: { recog:'vi-VN', ttsCode:'vi-VN', serverTTS:false },
@@ -453,6 +621,7 @@ const LANGS = {
 };
 const ALL_LANGS  = ['ja','vi','my'];
 const TARGETS    = { ja:['vi','my'], vi:['ja','my'], my:['ja','vi'] };
+const LANG_FLAGS = { ja:'🇯🇵', vi:'🇻🇳', my:'🇲🇲' };
 const MIC_LABEL  = { ja:'話す',  vi:'Nói',       my:'ပြောဆိုမည်' };
 const STOP_LABEL = { ja:'停止',  vi:'Dừng lại',  my:'ရပ်မည်'      };
 const PH_INPUT   = {
@@ -466,13 +635,17 @@ const PH_REC = {
   my: 'ဖမ်းနေသည်… ပြောဆိုပါ',
 };
 
-/* ─── State ─── */
+/* ═══════════════════════════════════════
+   State
+═══════════════════════════════════════ */
 const st = {};
 ALL_LANGS.forEach(l => { st[l] = { recognition:null, isRecording:false, finalText:'', lastTranslated:'', debounceTimer:null, controller:null }; });
 let mode = 'auto';
 let currentAudio = null;
 
-/* ─── Mode ─── */
+/* ═══════════════════════════════════════
+   Mode
+═══════════════════════════════════════ */
 function setMode(m) {
   mode = m;
   document.getElementById('modeAuto').classList.toggle('active',   m==='auto');
@@ -492,7 +665,9 @@ function setMode(m) {
   });
 }
 
-/* ─── Errors ─── */
+/* ═══════════════════════════════════════
+   Errors
+═══════════════════════════════════════ */
 function showErr(lang, msg) {
   const el = document.getElementById(`error-${lang}`);
   el.textContent=msg; el.classList.add('show');
@@ -500,13 +675,9 @@ function showErr(lang, msg) {
 }
 function hideErr(lang) { document.getElementById(`error-${lang}`).classList.remove('show'); }
 
-/* ─── Recording ─── */
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-
-function toggleRec(lang) { st[lang].isRecording ? stopRec(lang) : startRec(lang); }
-
-/* ─── Myanmar: MediaRecorder + Groq Whisper ─── */
+/* ═══════════════════════════════════════
+   Myanmar: MediaRecorder + Whisper (transformers.js)
+═══════════════════════════════════════ */
 let myIsRecording = false;
 let myRecorder    = null;
 let myChunks      = [];
@@ -578,7 +749,6 @@ async function sendMyAudio() {
   }
 }
 
-/* ─── Whisper (transformers.js ブラウザ内推論) ─── */
 let _whisperPipe = null;
 
 async function transcribeMy(blob) {
@@ -619,9 +789,16 @@ async function transcribeMy(blob) {
   return result.text;
 }
 
+/* ═══════════════════════════════════════
+   Web Speech API (JA / VI)
+═══════════════════════════════════════ */
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+function toggleRec(lang) { st[lang].isRecording ? stopRec(lang) : startRec(lang); }
+
 function startRec(lang) {
   ALL_LANGS.forEach(l => { if (l!==lang && st[l].isRecording) stopRec(l); });
-  // Stop Myanmar recording silently (clear chunks to skip sendMyAudio)
   if (myIsRecording) {
     myIsRecording = false; myChunks = [];
     if (myRecorder && myRecorder.state !== 'inactive') myRecorder.stop();
@@ -634,7 +811,6 @@ function startRec(lang) {
   const s = st[lang];
   s.finalText=''; s.lastTranslated='';
 
-  // Reset results
   TARGETS[lang].forEach(tgt => {
     const el = document.getElementById(`result-${lang}-${tgt}`);
     el.className = 'result-text ph' + (tgt==='my' ? ' mm' : '');
@@ -643,7 +819,6 @@ function startRec(lang) {
                   : '翻訳がここに表示されます';
   });
 
-  // Reset input
   if (mode==='auto') {
     document.getElementById(`transcript-${lang}`).innerHTML = `<span class="ph">${PH_REC[lang]}</span>`;
   } else {
@@ -723,7 +898,9 @@ function renderTranscript(lang, final, interim) {
   if (interim){ const sp=document.createElement('span'); sp.className='interim'; sp.textContent=' '+interim; el.appendChild(sp); }
 }
 
-/* ─── Translation ─── */
+/* ═══════════════════════════════════════
+   Translation (Claude API)
+═══════════════════════════════════════ */
 function scheduleTranslate(lang) {
   const s = st[lang];
   clearTimeout(s.debounceTimer);
@@ -739,7 +916,7 @@ function manualTranslate(lang) {
 }
 
 async function doTranslate(lang, text) {
-  if (!text) return;
+  if (!text || !sessionToken) return;
   const s = st[lang];
   s.lastTranslated = text;
   if (s.controller) s.controller.abort();
@@ -747,11 +924,15 @@ async function doTranslate(lang, text) {
   document.getElementById(`spinner-${lang}`).classList.add('show');
   try {
     const resp = await fetch('/api/translate', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-Token': sessionToken,
+      },
       body: JSON.stringify({ text, from: lang }),
       signal: s.controller.signal,
     });
+    if (resp.status === 401) { handleAuthError(); return; }
     const data = await resp.json();
     if (!resp.ok) { showErr(lang, data.error||'翻訳エラー'); return; }
     TARGETS[lang].forEach(tgt => {
@@ -759,6 +940,7 @@ async function doTranslate(lang, text) {
       el.className = 'result-text' + (tgt==='my' ? ' mm' : '');
       el.textContent = data[tgt] || '—';
     });
+    if (histOpen) loadHistory();
   } catch(err) {
     if (err.name==='AbortError') return;
     showErr(lang, '接続エラー: '+err.message);
@@ -768,7 +950,9 @@ async function doTranslate(lang, text) {
   }
 }
 
-/* ─── TTS ─── */
+/* ═══════════════════════════════════════
+   TTS
+═══════════════════════════════════════ */
 function speakResult(srcLang, tgtLang) {
   const textEl = document.getElementById(`result-${srcLang}-${tgtLang}`);
   if (textEl.classList.contains('ph')) return;
@@ -803,6 +987,84 @@ function speakResult(srcLang, tgtLang) {
     speechSynthesis.speak(utt);
   }
 }
+
+/* ═══════════════════════════════════════
+   会話履歴
+═══════════════════════════════════════ */
+let histOpen = false;
+
+function toggleHistory() {
+  histOpen = !histOpen;
+  document.getElementById('histList').style.display = histOpen ? '' : 'none';
+  document.getElementById('histToggleIcon').textContent = histOpen ? '▲' : '▼';
+  if (histOpen) loadHistory();
+}
+
+async function loadHistory() {
+  if (!sessionToken) return;
+  try {
+    const r = await fetch('/api/history', { headers: { 'X-Session-Token': sessionToken } });
+    if (r.status === 401) { handleAuthError(); return; }
+    if (!r.ok) return;
+    renderHistory(await r.json());
+  } catch {}
+}
+
+function renderHistory(entries) {
+  const list = document.getElementById('histList');
+  if (!entries.length) {
+    list.innerHTML = '<div class="hist-empty">まだ翻訳履歴はありません</div>';
+    return;
+  }
+  list.innerHTML = entries.slice().reverse().map(e => {
+    const flag = LANG_FLAGS[e.from] || '';
+    const time = new Date(e.timestamp).toLocaleTimeString('ja-JP');
+    const tgts = ['ja','vi','my']
+      .filter(k => k !== e.from && e[k])
+      .map(k => `<div class="hist-trans">${LANG_FLAGS[k]} <span class="${k==='my'?'mm':''}">${e[k]}</span></div>`)
+      .join('');
+    return `<div class="hist-entry">
+      <div class="hist-source"><span class="hist-time">${time}</span> ${flag} <span>${e.text}</span></div>
+      ${tgts}
+    </div>`;
+  }).join('');
+}
+
+async function resetContext() {
+  if (!sessionToken) return;
+  if (!confirm('翻訳の文脈（コンテキスト）をリセットしますか？\n※ 履歴は保持されます')) return;
+  try {
+    const r = await fetch('/api/context', { method:'DELETE', headers:{'X-Session-Token': sessionToken} });
+    if (r.status === 401) { handleAuthError(); return; }
+    alert('文脈をリセットしました。次回の翻訳から新しい会話として認識されます。');
+  } catch {}
+}
+
+function exportCSV() {
+  if (!sessionToken) return;
+  fetch('/api/history', { headers: { 'X-Session-Token': sessionToken } })
+    .then(r => r.json())
+    .then(data => {
+      if (!data.length) { alert('履歴がありません'); return; }
+      const hdr = ['時刻','発話言語','原文','日本語訳','ベトナム語訳','ミャンマー語訳'];
+      const LNAMES = { ja:'日本語', vi:'ベトナム語', my:'ミャンマー語' };
+      const rows = data.map(e => [
+        new Date(e.timestamp).toLocaleString('ja-JP'),
+        LNAMES[e.from] || e.from,
+        e.text,
+        e.ja || '', e.vi || '', e.my || '',
+      ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+      const csv = '﻿' + [hdr.join(','), ...rows].join('\r\n');
+      const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url;
+      a.download = `翻訳履歴_${new Date().toLocaleDateString('ja-JP').replace(/\//g,'-')}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    }).catch(() => alert('エクスポートエラー'));
+}
+
+/* ── 起動時セッション確認 ── */
+checkSession();
 </script>
 </body>
 </html>

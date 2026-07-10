@@ -3,7 +3,8 @@ const express    = require('express');
 const https      = require('https');
 const QRCode     = require('qrcode');
 const selfsigned = require('selfsigned');
-const Groq       = require('groq-sdk');
+const Anthropic  = require('@anthropic-ai/sdk');
+const crypto     = require('crypto');
 const path = require('path');
 const os   = require('os');
 const fs   = require('fs');
@@ -11,28 +12,46 @@ const fs   = require('fs');
 /* ── 本番(Render) か ローカルか ── */
 const IS_PROD = !!(process.env.RENDER || process.env.NODE_ENV === 'production');
 
-/* ── Groq (ミャンマー語音声認識) ── */
-const groq = process.env.GROQ_API_KEY
-  ? new Groq({ apiKey: process.env.GROQ_API_KEY })
+/* ── Claude API ── */
+const anthropic = process.env.ANTHROPIC_API_KEY
+  ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   : null;
 
-/* ── Google Translate 非公式 API (無料・キー不要) ── */
-const SRC_MAP = {
-  'ja-JP':'ja', 'en-US':'en', 'zh-CN':'zh-CN',
-  'ko-KR':'ko', 'vi-VN':'vi', 'th-TH':'th',
-};
+/* ── セッション管理 ── */
+const sessions = new Map();
+// { token → { context: [], history: [], lastActivity: timestamp } }
 
-async function translateGoogle(src, tgt, text) {
-  const q   = encodeURIComponent(text.slice(0, 800));
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${src}&tl=${tgt}&dt=t&q=${q}`;
-  const r   = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const data = await r.json();
-  // data[0] は [[翻訳文, 原文], ...] の配列
-  return (data[0] || []).map(p => p[0]).filter(Boolean).join('');
+setInterval(() => {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  for (const [token, s] of sessions) {
+    if (s.lastActivity < cutoff) sessions.delete(token);
+  }
+}, 60 * 60 * 1000);
+
+function requireSession(req, res, next) {
+  const token = req.headers['x-session-token'];
+  if (!token || !sessions.has(token)) {
+    return res.status(401).json({ error: '認証が必要です' });
+  }
+  const sess = sessions.get(token);
+  sess.lastActivity = Date.now();
+  req.sess = sess;
+  next();
 }
 
-/* ── ローカル開発用 ── */
+/* ── レート制限 ── */
+const rateMap = new Map();
+function rateLimit(req, res, next) {
+  const key = req.ip;
+  const now = Date.now();
+  const arr = (rateMap.get(key) || []).filter(t => now - t < 60000);
+  arr.push(now);
+  rateMap.set(key, arr);
+  if (arr.length > 60) return res.status(429).json({ error: 'レート制限: しばらく待ってから再試行してください' });
+  next();
+}
+
+/* ── ローカルIP取得 ── */
 function getLocalIPs() {
   const ips = [];
   for (const ifaces of Object.values(os.networkInterfaces())) {
@@ -43,6 +62,7 @@ function getLocalIPs() {
   return ips;
 }
 
+/* ── 自己署名証明書 (ローカル用) ── */
 async function getCert(ips) {
   const dir      = path.join(__dirname, '.certs');
   const certFile = path.join(dir, 'cert.pem');
@@ -79,11 +99,29 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-/* QR コード (ローカル用) */
+/* ── PIN 認証 → セッショントークン発行 ── */
+app.post('/api/auth', rateLimit, (req, res) => {
+  const { pin } = req.body;
+  const APP_PIN = process.env.APP_PIN;
+  if (!APP_PIN) return res.status(503).json({ error: '管理者設定: APP_PIN が未設定です' });
+  if (typeof pin !== 'string' || pin !== APP_PIN) {
+    return res.status(401).json({ error: 'PINが正しくありません' });
+  }
+  const token = crypto.randomUUID();
+  sessions.set(token, { context: [], history: [], lastActivity: Date.now() });
+  res.json({ token });
+});
+
+/* ── セッション確認 ── */
+app.get('/api/session', requireSession, (req, res) => {
+  res.json({ ok: true, historyCount: req.sess.history.length });
+});
+
+/* ── QR コード ── */
 app.get('/api/qr', async (req, res) => {
   const ip   = getLocalIPs()[0] || 'localhost';
   const PORT = process.env.PORT || 3000;
-  const proto = IS_PROD ? 'http' : 'https';
+  const proto = IS_PROD ? 'https' : 'https';
   const svg  = await QRCode.toString(`${proto}://${ip}:${PORT}`, {
     type: 'svg', color: { dark: '#4f46e5', light: '#ffffff' }, margin: 2, width: 200,
   });
@@ -91,10 +129,10 @@ app.get('/api/qr', async (req, res) => {
   res.send(svg);
 });
 
-/* ネットワーク情報 (ローカル用) */
+/* ── ネットワーク情報 ── */
 app.get('/api/netinfo', (req, res) => {
   const PORT  = process.env.PORT || 3000;
-  const proto = IS_PROD ? 'http' : 'https';
+  const proto = IS_PROD ? 'https' : 'https';
   res.json({ ips: getLocalIPs(), port: PORT, protocol: proto });
 });
 
@@ -102,7 +140,6 @@ app.get('/api/netinfo', (req, res) => {
 app.get('/api/tts', async (req, res) => {
   const { text, lang } = req.query;
   if (!text || !lang) return res.status(400).send('Missing params');
-
   const url = `https://translate.googleapis.com/translate_tts?ie=UTF-8&tl=${encodeURIComponent(lang)}&client=gtx&q=${encodeURIComponent(text.slice(0, 200))}`;
   try {
     const r = await fetch(url, {
@@ -116,73 +153,104 @@ app.get('/api/tts', async (req, res) => {
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.send(Buffer.from(await r.arrayBuffer()));
-  } catch (err) {
+  } catch {
     res.status(502).send('TTS error');
   }
 });
 
-/* ── 音声認識 API (Groq Whisper) ── */
-app.post('/api/transcribe',
-  express.raw({ type: '*/*', limit: '25mb' }),
-  async (req, res) => {
-    if (!groq) return res.status(503).json({ error: 'GROQ_API_KEY が未設定です' });
-    const lang = req.query.lang || 'my';
-    try {
-      const mimeType = req.headers['content-type'] || 'audio/webm';
-      const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-      const file = new File([req.body], `rec.${ext}`, { type: mimeType });
-      const result = await groq.audio.transcriptions.create({
-        file,
-        model: 'whisper-large-v3',
-        language: lang,
-      });
-      res.json({ text: result.text });
-    } catch(err) {
-      res.status(500).json({ error: err.message });
-    }
-  }
-);
+/* ── 翻訳 API (Claude Haiku + コンテキスト) ── */
+const LANG_NAMES = { ja: '日本語', vi: 'ベトナム語', my: 'ミャンマー語' };
 
-/* ── 翻訳 API ── */
-app.post('/api/translate', async (req, res) => {
+app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   const { text, from } = req.body;
   if (!text?.trim()) return res.status(400).json({ error: 'テキストが必要です' });
+  if (!anthropic)    return res.status(503).json({ error: 'ANTHROPIC_API_KEY が未設定です' });
 
-  const ALL = ['ja', 'vi', 'my'];
-  const src = ALL.includes(from) ? from : 'auto';
+  const ALL     = ['ja', 'vi', 'my'];
   const targets = ALL.filter(l => l !== from);
+  const sess    = req.sess;
+
+  // 直近10件のコンテキスト
+  const ctxLines = sess.context.slice(-10).map(ex => {
+    const tLine = targets.map(t => `→${LANG_NAMES[t]}: ${ex[t] || '—'}`).join(' | ');
+    return `[${LANG_NAMES[ex.from]}] ${ex.text}  ${tLine}`;
+  }).join('\n');
+
+  const system = [
+    'あなたは日本語・ベトナム語・ミャンマー語の専門通訳者です。',
+    'ビジネス・業務シーンを想定し、正確かつ自然な翻訳をしてください。',
+    `必ずJSON形式のみで返答してください: {"${targets[0]}":"翻訳文","${targets[1]}":"翻訳文"}`,
+    'JSON以外のテキストは一切出力しないでください。',
+  ].join('\n');
+
+  const userMsg = ctxLines
+    ? `【これまでの会話の流れ】\n${ctxLines}\n\n【今回の翻訳】\n${LANG_NAMES[from]}: ${text.trim()}`
+    : `${LANG_NAMES[from]}: ${text.trim()}`;
 
   try {
-    const entries = await Promise.all(
-      targets.map(async tgt => [tgt, await translateGoogle(src, tgt, text.trim())])
-    );
-    res.json(Object.fromEntries(entries));
-  } catch (err) {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system,
+      messages: [{ role: 'user', content: userMsg }],
+    });
+
+    const raw = response.content[0].text.trim();
+    let translations = {};
+    try { translations = JSON.parse(raw); }
+    catch {
+      const m = raw.match(/\{[\s\S]*?\}/);
+      if (m) { try { translations = JSON.parse(m[0]); } catch {} }
+    }
+
+    const entry = {
+      from,
+      text: text.trim(),
+      timestamp: new Date().toISOString(),
+      ...translations,
+    };
+    sess.context.push(entry);
+    if (sess.context.length > 50) sess.context.shift();
+    sess.history.push(entry);
+
+    res.json(translations);
+  } catch(err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+/* ── 翻訳履歴取得 ── */
+app.get('/api/history', requireSession, (req, res) => {
+  res.json(req.sess.history);
+});
+
+/* ── コンテキストリセット (履歴は保持) ── */
+app.delete('/api/context', requireSession, (req, res) => {
+  req.sess.context = [];
+  res.json({ ok: true });
 });
 
 /* ── サーバー起動 ── */
 const PORT = process.env.PORT || 3000;
 
 if (IS_PROD) {
-  /* 本番: Render が HTTPS を処理 → HTTP で起動 */
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ 音声翻訳サーバー起動 (port ${PORT})`);
+    console.log(`✅ 同時通訳サーバー起動 (port ${PORT})`);
+    console.log(`   Claude API: ${anthropic ? '有効' : '未設定'}`);
+    console.log(`   PIN認証: ${process.env.APP_PIN ? '有効' : '未設定'}`);
   });
 } else {
-  /* ローカル開発: HTTPS (Web Speech API のため) */
   (async () => {
     const ips = getLocalIPs();
     const { cert, key } = await getCert(ips);
     https.createServer({ cert, key }, app).listen(PORT, '0.0.0.0', () => {
-      console.log('\n🎤 音声リアルタイム翻訳 (ローカル / HTTPS)');
+      console.log('\n🎤 同時通訳 3言語 (ローカル / HTTPS)');
       console.log('─'.repeat(50));
       console.log(`  PC      : https://localhost:${PORT}`);
       ips.forEach(ip => console.log(`  スマホ等: https://${ip}:${PORT}`));
       console.log('─'.repeat(50));
-      console.log('  ⚡ 翻訳エンジン: Lingva Translate (無料・コストゼロ)');
-      console.log('  📱 初回: ブラウザの「詳細設定」→「サイトへ移動」');
+      console.log(`  Claude API: ${anthropic ? '有効' : '⚠️  ANTHROPIC_API_KEY 未設定'}`);
+      console.log(`  PIN認証:    ${process.env.APP_PIN ? '有効 (' + process.env.APP_PIN.length + '桁)' : '⚠️  APP_PIN 未設定'}`);
       console.log('');
     });
   })();
