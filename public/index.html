@@ -254,31 +254,51 @@
       position: fixed; z-index: 500;
       background: rgba(15, 23, 42, 0.93);
       color: white; border-radius: 16px;
-      padding: 12px 15px; min-width: 200px; max-width: 340px;
+      padding: 12px 15px 18px;
+      width: 260px; min-width: 160px; min-height: 80px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.35);
       backdrop-filter: blur(10px);
       -webkit-backdrop-filter: blur(10px);
       cursor: move; user-select: none;
       bottom: 100px; right: 20px;
       touch-action: none;
+      overflow: hidden;
     }
     .float-grip {
       display: flex; align-items: center; justify-content: space-between;
       margin-bottom: 8px; padding-bottom: 7px;
       border-bottom: 1px solid rgba(255,255,255,0.12);
     }
-    .float-title { font-size: 0.7rem; color: #94a3b8; font-weight: 600; letter-spacing: 0.06em; }
+    .float-title { font-size: 0.68rem; color: #94a3b8; font-weight: 600; letter-spacing: 0.06em; }
+    .float-controls { display: flex; align-items: center; gap: 3px; }
+    .float-sz-btn {
+      background: rgba(255,255,255,0.1); border: none; color: #94a3b8;
+      cursor: pointer; font-size: 0.7rem; font-weight: 700;
+      padding: 2px 6px; border-radius: 5px; line-height: 1.4;
+      pointer-events: all; transition: background 0.15s;
+    }
+    .float-sz-btn:hover { background: rgba(255,255,255,0.2); color: white; }
     .float-close {
       background: none; border: none; color: #64748b; cursor: pointer;
       font-size: 0.9rem; padding: 0 2px; line-height: 1;
-      pointer-events: all;
+      pointer-events: all; margin-left: 2px;
     }
     .float-close:hover { color: white; }
-    .float-row { display: flex; align-items: baseline; gap: 7px; padding: 3px 0; font-size: 0.92rem; line-height: 1.55; }
+    .float-content { overflow-y: auto; max-height: 300px; }
+    .float-row { display: flex; align-items: baseline; gap: 7px; padding: 4px 0; line-height: 1.55; }
     .float-flag { font-size: 1rem; flex-shrink: 0; }
     .float-text { word-break: break-word; }
     .float-text.mm { font-family: 'Noto Sans Myanmar', sans-serif; }
     .float-empty { color: #475569; font-size: 0.8rem; font-style: italic; }
+    /* リサイズハンドル */
+    #floatResizeHandle {
+      position: absolute; bottom: 3px; right: 4px;
+      width: 18px; height: 18px; cursor: se-resize;
+      color: #475569; font-size: 0.75rem; line-height: 18px;
+      text-align: center; pointer-events: all;
+      touch-action: none;
+    }
+    #floatResizeHandle:hover { color: #94a3b8; }
     #floatToggleBtn {
       font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 11px;
       border-radius: 8px; border: 1.5px solid var(--border); cursor: pointer;
@@ -322,11 +342,16 @@
 <div id="floatPanel" style="display:none;">
   <div class="float-grip">
     <span class="float-title">📍 最新翻訳</span>
-    <button class="float-close" onclick="toggleFloat()">✕</button>
+    <div class="float-controls">
+      <button class="float-sz-btn" onclick="floatFont(-1)" title="文字を小さく">A−</button>
+      <button class="float-sz-btn" onclick="floatFont(+1)" title="文字を大きく">A+</button>
+      <button class="float-close" onclick="toggleFloat()">✕</button>
+    </div>
   </div>
-  <div id="floatContent">
+  <div id="floatContent" class="float-content">
     <div class="float-empty">翻訳するとここに表示されます</div>
   </div>
+  <div id="floatResizeHandle" title="ドラッグでサイズ変更">⇲</div>
 </div>
 
 <!-- ── Install Banner ── -->
@@ -1118,8 +1143,11 @@ function exportCSV() {
    フローティングパネル
 ═══════════════════════════════════════ */
 let floatVisible = false;
-let isDragging = false;
+let floatFontSize = 1.0;   // rem
+let isDragging   = false;
+let isResizing   = false;
 let dragOffX = 0, dragOffY = 0;
+let resizeStartX = 0, resizeStartY = 0, resizeStartW = 0, resizeStartH = 0;
 
 function toggleFloat() {
   const panel = document.getElementById('floatPanel');
@@ -1127,7 +1155,12 @@ function toggleFloat() {
   floatVisible = !floatVisible;
   panel.style.display = floatVisible ? 'block' : 'none';
   btn.classList.toggle('active', floatVisible);
-  btn.textContent = floatVisible ? '📍 フロート 表示中' : '📍 フロート表示';
+  btn.textContent = floatVisible ? '📍 表示中' : '📍 フロート表示';
+}
+
+function floatFont(dir) {
+  floatFontSize = Math.min(2.4, Math.max(0.6, floatFontSize + dir * 0.15));
+  document.getElementById('floatContent').style.fontSize = floatFontSize + 'rem';
 }
 
 function updateFloat(fromLang, translations) {
@@ -1138,47 +1171,94 @@ function updateFloat(fromLang, translations) {
     .map(([k, v]) =>
       `<div class="float-row"><span class="float-flag">${flags[k]||''}</span><span class="float-text${k==='my'?' mm':''}">${v}</span></div>`
     ).join('');
-  document.getElementById('floatContent').innerHTML =
-    rows || '<div class="float-empty">翻訳結果なし</div>';
+  const el = document.getElementById('floatContent');
+  el.innerHTML = rows || '<div class="float-empty">翻訳結果なし</div>';
+  el.style.fontSize = floatFontSize + 'rem';
 }
 
-/* ── ドラッグ (マウス) ── */
+/* ── ドラッグ移動 (マウス) ── */
 document.getElementById('floatPanel').addEventListener('mousedown', e => {
-  if (e.target.classList.contains('float-close')) return;
+  if (e.target.id === 'floatResizeHandle') return;
+  if (e.target.classList.contains('float-close') ||
+      e.target.classList.contains('float-sz-btn')) return;
   isDragging = true;
   const r = document.getElementById('floatPanel').getBoundingClientRect();
   dragOffX = e.clientX - r.left;
   dragOffY = e.clientY - r.top;
   e.preventDefault();
 });
-document.addEventListener('mousemove', e => {
-  if (!isDragging) return;
-  const panel = document.getElementById('floatPanel');
-  panel.style.left   = (e.clientX - dragOffX) + 'px';
-  panel.style.top    = (e.clientY - dragOffY) + 'px';
-  panel.style.right  = 'auto';
-  panel.style.bottom = 'auto';
-});
-document.addEventListener('mouseup', () => { isDragging = false; });
 
-/* ── ドラッグ (タッチ) ── */
+/* ── リサイズ (マウス) ── */
+document.getElementById('floatResizeHandle').addEventListener('mousedown', e => {
+  isResizing = true;
+  const panel = document.getElementById('floatPanel');
+  resizeStartX = e.clientX;
+  resizeStartY = e.clientY;
+  resizeStartW = panel.offsetWidth;
+  resizeStartH = panel.offsetHeight;
+  e.preventDefault();
+  e.stopPropagation();
+});
+
+document.addEventListener('mousemove', e => {
+  if (isDragging) {
+    const panel = document.getElementById('floatPanel');
+    panel.style.left   = (e.clientX - dragOffX) + 'px';
+    panel.style.top    = (e.clientY - dragOffY) + 'px';
+    panel.style.right  = 'auto';
+    panel.style.bottom = 'auto';
+  }
+  if (isResizing) {
+    const panel = document.getElementById('floatPanel');
+    const newW = Math.max(160, resizeStartW + (e.clientX - resizeStartX));
+    const newH = Math.max(80,  resizeStartH + (e.clientY - resizeStartY));
+    panel.style.width     = newW + 'px';
+    panel.style.minHeight = newH + 'px';
+  }
+});
+document.addEventListener('mouseup', () => { isDragging = false; isResizing = false; });
+
+/* ── ドラッグ移動 (タッチ) ── */
 document.getElementById('floatPanel').addEventListener('touchstart', e => {
-  if (e.target.classList.contains('float-close')) return;
+  if (e.target.id === 'floatResizeHandle') return;
+  if (e.target.classList.contains('float-close') ||
+      e.target.classList.contains('float-sz-btn')) return;
   isDragging = true;
   const r = document.getElementById('floatPanel').getBoundingClientRect();
   dragOffX = e.touches[0].clientX - r.left;
   dragOffY = e.touches[0].clientY - r.top;
 }, { passive: true });
-document.addEventListener('touchmove', e => {
-  if (!isDragging) return;
-  e.preventDefault();
+
+/* ── リサイズ (タッチ) ── */
+document.getElementById('floatResizeHandle').addEventListener('touchstart', e => {
+  isResizing = true;
   const panel = document.getElementById('floatPanel');
-  panel.style.left   = (e.touches[0].clientX - dragOffX) + 'px';
-  panel.style.top    = (e.touches[0].clientY - dragOffY) + 'px';
-  panel.style.right  = 'auto';
-  panel.style.bottom = 'auto';
+  resizeStartX = e.touches[0].clientX;
+  resizeStartY = e.touches[0].clientY;
+  resizeStartW = panel.offsetWidth;
+  resizeStartH = panel.offsetHeight;
+  e.stopPropagation();
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (isDragging) {
+    e.preventDefault();
+    const panel = document.getElementById('floatPanel');
+    panel.style.left   = (e.touches[0].clientX - dragOffX) + 'px';
+    panel.style.top    = (e.touches[0].clientY - dragOffY) + 'px';
+    panel.style.right  = 'auto';
+    panel.style.bottom = 'auto';
+  }
+  if (isResizing) {
+    e.preventDefault();
+    const panel = document.getElementById('floatPanel');
+    const newW = Math.max(160, resizeStartW + (e.touches[0].clientX - resizeStartX));
+    const newH = Math.max(80,  resizeStartH + (e.touches[0].clientY - resizeStartY));
+    panel.style.width     = newW + 'px';
+    panel.style.minHeight = newH + 'px';
+  }
 }, { passive: false });
-document.addEventListener('touchend', () => { isDragging = false; });
+document.addEventListener('touchend', () => { isDragging = false; isResizing = false; });
 
 /* ── 起動時セッション確認 ── */
 checkSession();
