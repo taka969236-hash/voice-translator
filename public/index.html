@@ -249,6 +249,44 @@
     .hist-trans { font-size: 0.82rem; color: var(--muted); display: flex; align-items: baseline; gap: 5px; margin-bottom: 2px; padding-left: 4px; }
     .hist-empty { color: var(--muted); font-size: 0.84rem; padding: 20px 0; text-align: center; }
 
+    /* ── Floating Panel ── */
+    #floatPanel {
+      position: fixed; z-index: 500;
+      background: rgba(15, 23, 42, 0.93);
+      color: white; border-radius: 16px;
+      padding: 12px 15px; min-width: 200px; max-width: 340px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      cursor: move; user-select: none;
+      bottom: 100px; right: 20px;
+      touch-action: none;
+    }
+    .float-grip {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px; padding-bottom: 7px;
+      border-bottom: 1px solid rgba(255,255,255,0.12);
+    }
+    .float-title { font-size: 0.7rem; color: #94a3b8; font-weight: 600; letter-spacing: 0.06em; }
+    .float-close {
+      background: none; border: none; color: #64748b; cursor: pointer;
+      font-size: 0.9rem; padding: 0 2px; line-height: 1;
+      pointer-events: all;
+    }
+    .float-close:hover { color: white; }
+    .float-row { display: flex; align-items: baseline; gap: 7px; padding: 3px 0; font-size: 0.92rem; line-height: 1.55; }
+    .float-flag { font-size: 1rem; flex-shrink: 0; }
+    .float-text { word-break: break-word; }
+    .float-text.mm { font-family: 'Noto Sans Myanmar', sans-serif; }
+    .float-empty { color: #475569; font-size: 0.8rem; font-style: italic; }
+    #floatToggleBtn {
+      font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 11px;
+      border-radius: 8px; border: 1.5px solid var(--border); cursor: pointer;
+      white-space: nowrap; transition: all 0.15s;
+    }
+    #floatToggleBtn:hover { border-color: var(--primary); color: var(--primary); }
+    #floatToggleBtn.active { background: var(--primary); color: white; border-color: var(--primary); }
+
     /* ── Install Banner ── */
     #installBanner {
       display: none; position: fixed; bottom: max(16px, calc(12px + var(--safe-bottom)));
@@ -280,6 +318,17 @@
   </div>
 </div>
 
+<!-- ── Floating Translation Panel ── -->
+<div id="floatPanel" style="display:none;">
+  <div class="float-grip">
+    <span class="float-title">📍 最新翻訳</span>
+    <button class="float-close" onclick="toggleFloat()">✕</button>
+  </div>
+  <div id="floatContent">
+    <div class="float-empty">翻訳するとここに表示されます</div>
+  </div>
+</div>
+
 <!-- ── Install Banner ── -->
 <div id="installBanner">
   <span>📱 ホーム画面に追加してアプリとして使えます</span>
@@ -295,6 +344,7 @@
   </div>
   <div class="header-right">
     <span class="badge">🤖 Claude AI · コンテキスト10件</span>
+    <button id="floatToggleBtn" onclick="toggleFloat()">📍 フロート表示</button>
     <button id="logoutBtn" onclick="logout()">🔒 ログアウト</button>
   </div>
 </header>
@@ -940,6 +990,7 @@ async function doTranslate(lang, text) {
       el.className = 'result-text' + (tgt==='my' ? ' mm' : '');
       el.textContent = data[tgt] || '—';
     });
+    updateFloat(lang, data);
     if (histOpen) loadHistory();
   } catch(err) {
     if (err.name==='AbortError') return;
@@ -1062,6 +1113,72 @@ function exportCSV() {
       a.click(); URL.revokeObjectURL(url);
     }).catch(() => alert('エクスポートエラー'));
 }
+
+/* ═══════════════════════════════════════
+   フローティングパネル
+═══════════════════════════════════════ */
+let floatVisible = false;
+let isDragging = false;
+let dragOffX = 0, dragOffY = 0;
+
+function toggleFloat() {
+  const panel = document.getElementById('floatPanel');
+  const btn   = document.getElementById('floatToggleBtn');
+  floatVisible = !floatVisible;
+  panel.style.display = floatVisible ? 'block' : 'none';
+  btn.classList.toggle('active', floatVisible);
+  btn.textContent = floatVisible ? '📍 フロート 表示中' : '📍 フロート表示';
+}
+
+function updateFloat(fromLang, translations) {
+  if (!floatVisible) return;
+  const flags = { ja:'🇯🇵', vi:'🇻🇳', my:'🇲🇲' };
+  const rows = Object.entries(translations)
+    .filter(([k, v]) => v && v !== '—')
+    .map(([k, v]) =>
+      `<div class="float-row"><span class="float-flag">${flags[k]||''}</span><span class="float-text${k==='my'?' mm':''}">${v}</span></div>`
+    ).join('');
+  document.getElementById('floatContent').innerHTML =
+    rows || '<div class="float-empty">翻訳結果なし</div>';
+}
+
+/* ── ドラッグ (マウス) ── */
+document.getElementById('floatPanel').addEventListener('mousedown', e => {
+  if (e.target.classList.contains('float-close')) return;
+  isDragging = true;
+  const r = document.getElementById('floatPanel').getBoundingClientRect();
+  dragOffX = e.clientX - r.left;
+  dragOffY = e.clientY - r.top;
+  e.preventDefault();
+});
+document.addEventListener('mousemove', e => {
+  if (!isDragging) return;
+  const panel = document.getElementById('floatPanel');
+  panel.style.left   = (e.clientX - dragOffX) + 'px';
+  panel.style.top    = (e.clientY - dragOffY) + 'px';
+  panel.style.right  = 'auto';
+  panel.style.bottom = 'auto';
+});
+document.addEventListener('mouseup', () => { isDragging = false; });
+
+/* ── ドラッグ (タッチ) ── */
+document.getElementById('floatPanel').addEventListener('touchstart', e => {
+  if (e.target.classList.contains('float-close')) return;
+  isDragging = true;
+  const r = document.getElementById('floatPanel').getBoundingClientRect();
+  dragOffX = e.touches[0].clientX - r.left;
+  dragOffY = e.touches[0].clientY - r.top;
+}, { passive: true });
+document.addEventListener('touchmove', e => {
+  if (!isDragging) return;
+  e.preventDefault();
+  const panel = document.getElementById('floatPanel');
+  panel.style.left   = (e.touches[0].clientX - dragOffX) + 'px';
+  panel.style.top    = (e.touches[0].clientY - dragOffY) + 'px';
+  panel.style.right  = 'auto';
+  panel.style.bottom = 'auto';
+}, { passive: false });
+document.addEventListener('touchend', () => { isDragging = false; });
 
 /* ── 起動時セッション確認 ── */
 checkSession();
