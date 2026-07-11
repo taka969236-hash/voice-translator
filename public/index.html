@@ -213,6 +213,7 @@
     .result-text { font-size: 0.86rem; line-height: 1.75; word-break: break-word; }
     .result-text.ph { color: #d1d5db !important; font-style: italic; font-size: 0.78rem; font-family: 'Noto Sans JP', sans-serif !important; }
     .result-text.mm { font-family: 'Noto Sans Myanmar', sans-serif; }
+    .typing-cur { display: inline-block; animation: blink 0.7s ease-in-out infinite; }
 
     /* ── Error ── */
     .panel-error { display: none; background: #fef2f2; border: 1.5px solid #fecaca; color: #dc2626; border-radius: 8px; padding: 7px 10px; font-size: 0.78rem; }
@@ -1045,33 +1046,103 @@ async function doTranslate(lang, text) {
   if (s.controller) s.controller.abort();
   s.controller = new AbortController();
   document.getElementById(`spinner-${lang}`).classList.add('show');
+
+  // 翻訳先エリアにカーソルを表示
+  TARGETS[lang].forEach(tgt => {
+    const el = document.getElementById(`result-${lang}-${tgt}`);
+    el.className = 'result-text' + (tgt==='my' ? ' mm' : '');
+    el.innerHTML = '<span class="typing-cur">▋</span>';
+  });
+
   try {
     const resp = await fetch('/api/translate', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Session-Token': sessionToken,
-      },
+      headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken },
       body: JSON.stringify({ text, from: lang }),
       signal: s.controller.signal,
     });
     if (resp.status === 401) { handleAuthError(); return; }
-    const data = await resp.json();
-    if (!resp.ok) { showErr(lang, data.error||'翻訳エラー'); return; }
-    TARGETS[lang].forEach(tgt => {
-      const el = document.getElementById(`result-${lang}-${tgt}`);
-      el.className = 'result-text' + (tgt==='my' ? ' mm' : '');
-      el.textContent = data[tgt] || '—';
-    });
-    updateFloat(lang, data);
-    if (histOpen) loadHistory();
+
+    // 非SSEエラー (400/503など) への対応
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('text/event-stream')) {
+      const data = await resp.json().catch(()=>({}));
+      showErr(lang, data.error || `エラー (${resp.status})`);
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const parts = buf.split('\n\n');
+      buf = parts.pop() ?? '';
+
+      for (const part of parts) {
+        if (!part.startsWith('data: ')) continue;
+        let ev;
+        try { ev = JSON.parse(part.slice(6)); } catch { continue; }
+
+        if (ev.p !== undefined) {
+          // 部分テキストをリアルタイム表示
+          const partial = parsePartial(ev.p);
+          TARGETS[lang].forEach(tgt => {
+            if (tgt in partial) {
+              const el = document.getElementById(`result-${lang}-${tgt}`);
+              el.className = 'result-text' + (tgt==='my' ? ' mm' : '');
+              el.textContent = partial[tgt];
+              el.insertAdjacentHTML('beforeend', '<span class="typing-cur">▋</span>');
+            }
+          });
+          if (Object.keys(partial).length) updateFloat(lang, partial);
+        }
+
+        if (ev.done) {
+          const t = ev.t || {};
+          TARGETS[lang].forEach(tgt => {
+            const el = document.getElementById(`result-${lang}-${tgt}`);
+            el.className = 'result-text' + (tgt==='my' ? ' mm' : '');
+            el.textContent = t[tgt] || '—';
+          });
+          updateFloat(lang, t);
+          if (histOpen) loadHistory();
+        }
+
+        if (ev.error) {
+          showErr(lang, ev.error);
+          TARGETS[lang].forEach(tgt => {
+            const el = document.getElementById(`result-${lang}-${tgt}`);
+            el.className = 'result-text ph' + (tgt==='my' ? ' mm' : '');
+            el.textContent = '—';
+          });
+        }
+      }
+    }
+
   } catch(err) {
     if (err.name==='AbortError') return;
     showErr(lang, '接続エラー: '+err.message);
   } finally {
-    s.controller=null;
+    s.controller = null;
     document.getElementById(`spinner-${lang}`).classList.remove('show');
+    document.querySelectorAll('.typing-cur').forEach(c => c.remove());
   }
+}
+
+function parsePartial(raw) {
+  const result = {};
+  const re = /"(ja|vi|my)"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)/g;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    result[m[1]] = m[2]
+      .replace(/\\n/g, '\n').replace(/\\t/g, '\t')
+      .replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+  }
+  return result;
 }
 
 /* ═══════════════════════════════════════

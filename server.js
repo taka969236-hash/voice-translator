@@ -187,24 +187,34 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
     ? `【これまでの会話の流れ】\n${ctxLines}\n\n【今回の翻訳】\n${LANG_NAMES[from]}: ${text.trim()}`
     : `${LANG_NAMES[from]}: ${text.trim()}`;
 
-  // モデル: 利用可能なものを順に試す
+  // SSE ストリーミングレスポンス
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  const sse = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+
   const MODELS = [
     'claude-haiku-4-5-20251001',
     'claude-3-5-haiku-20241022',
     'claude-3-haiku-20240307',
   ];
 
-  let lastErr = null;
   for (const model of MODELS) {
     try {
-      const response = await anthropic.messages.create({
-        model,
-        max_tokens: 512,
-        system,
+      let accumulated = '';
+      const stream = anthropic.messages.stream({
+        model, max_tokens: 512, system,
         messages: [{ role: 'user', content: userMsg }],
       });
 
-      const raw = response.content[0].text.trim();
+      stream.on('text', chunk => {
+        accumulated += chunk;
+        sse({ p: accumulated });
+      });
+
+      const finalMsg = await stream.finalMessage();
+      const raw = finalMsg.content[0].text.trim();
+
       let translations = {};
       try { translations = JSON.parse(raw); }
       catch {
@@ -212,31 +222,28 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
         if (m) { try { translations = JSON.parse(m[0]); } catch {} }
       }
 
-      const entry = {
-        from,
-        text: text.trim(),
-        timestamp: new Date().toISOString(),
-        ...translations,
-      };
+      const entry = { from, text: text.trim(), timestamp: new Date().toISOString(), ...translations };
       sess.context.push(entry);
       if (sess.context.length > 50) sess.context.shift();
       sess.history.push(entry);
 
-      console.log(`[translate] model=${model} from=${from} len=${text.length}`);
-      return res.json(translations);
+      console.log(`[translate] model=${model} from=${from}`);
+      sse({ done: true, t: translations });
+      res.end();
+      return;
 
     } catch(err) {
-      lastErr = err;
       const status = err.status || err.statusCode;
-      console.error(`[translate] model=${model} error ${status}: ${err.message}`);
-      // 400/404 (モデル不正): 次のモデルを試す / それ以外: 即失敗
-      if (status !== 400 && status !== 404) break;
+      console.error(`[translate] model=${model} err${status}: ${err.message?.slice(0,120)}`);
+      if ((status === 400 || status === 404) && !res.writableEnded) continue;
+      break;
     }
   }
 
-  const msg = lastErr?.message || '翻訳に失敗しました';
-  console.error('[translate] all models failed:', msg);
-  res.status(500).json({ error: msg.slice(0, 200) });
+  if (!res.writableEnded) {
+    sse({ error: 'すべてのモデルで翻訳に失敗しました' });
+    res.end();
+  }
 });
 
 /* ── 翻訳履歴取得 ── */

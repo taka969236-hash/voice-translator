@@ -1,5 +1,5 @@
 /* Service Worker - Voice Translator */
-const CACHE = 'vt-v10';
+const CACHE = 'vt-v11';
 const STATIC = [
   '/',
   '/manifest.json',
