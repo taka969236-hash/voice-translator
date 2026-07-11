@@ -249,63 +249,70 @@
     .hist-trans { font-size: 0.82rem; color: var(--muted); display: flex; align-items: baseline; gap: 5px; margin-bottom: 2px; padding-left: 4px; }
     .hist-empty { color: var(--muted); font-size: 0.84rem; padding: 20px 0; text-align: center; }
 
-    /* ── Floating Panel ── */
-    #floatPanel {
+    /* ── Floating Panels ── */
+    .float-panel {
       position: fixed; z-index: 500;
       background: rgba(15, 23, 42, 0.93);
       color: white; border-radius: 16px;
-      padding: 12px 15px 18px;
-      width: 260px; min-width: 160px; min-height: 80px;
+      padding: 10px 13px 18px;
+      width: 240px; min-width: 150px; min-height: 80px;
       box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      cursor: move; user-select: none;
-      bottom: 100px; right: 20px;
-      touch-action: none;
-      overflow: hidden;
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      cursor: move; user-select: none; touch-action: none; overflow: hidden;
     }
     .float-grip {
       display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 8px; padding-bottom: 7px;
+      margin-bottom: 6px; padding-bottom: 6px;
       border-bottom: 1px solid rgba(255,255,255,0.12);
     }
-    .float-title { font-size: 0.68rem; color: #94a3b8; font-weight: 600; letter-spacing: 0.06em; }
+    .float-title { font-size: 0.65rem; color: #94a3b8; font-weight: 600; letter-spacing: 0.06em; }
     .float-controls { display: flex; align-items: center; gap: 3px; }
     .float-sz-btn {
       background: rgba(255,255,255,0.1); border: none; color: #94a3b8;
-      cursor: pointer; font-size: 0.7rem; font-weight: 700;
-      padding: 2px 6px; border-radius: 5px; line-height: 1.4;
+      cursor: pointer; font-size: 0.68rem; font-weight: 700;
+      padding: 2px 5px; border-radius: 5px; line-height: 1.4;
       pointer-events: all; transition: background 0.15s;
     }
-    .float-sz-btn:hover { background: rgba(255,255,255,0.2); color: white; }
+    .float-sz-btn:hover { background: rgba(255,255,255,0.22); color: white; }
     .float-close {
       background: none; border: none; color: #64748b; cursor: pointer;
       font-size: 0.9rem; padding: 0 2px; line-height: 1;
       pointer-events: all; margin-left: 2px;
     }
     .float-close:hover { color: white; }
-    .float-content { overflow-y: auto; max-height: 300px; }
-    .float-row { display: flex; align-items: baseline; gap: 7px; padding: 4px 0; line-height: 1.55; }
-    .float-flag { font-size: 1rem; flex-shrink: 0; }
-    .float-text { word-break: break-word; }
-    .float-text.mm { font-family: 'Noto Sans Myanmar', sans-serif; }
-    .float-empty { color: #475569; font-size: 0.8rem; font-style: italic; }
-    /* リサイズハンドル */
-    #floatResizeHandle {
-      position: absolute; bottom: 3px; right: 4px;
-      width: 18px; height: 18px; cursor: se-resize;
-      color: #475569; font-size: 0.75rem; line-height: 18px;
-      text-align: center; pointer-events: all;
-      touch-action: none;
+    /* 言語セレクター */
+    .float-lang-sel {
+      display: flex; gap: 4px; margin-bottom: 8px;
     }
-    #floatResizeHandle:hover { color: #94a3b8; }
-    #floatToggleBtn {
-      font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 11px;
+    .float-lang-btn {
+      flex: 1; padding: 4px 2px; border: 1.5px solid rgba(255,255,255,0.15);
+      background: transparent; color: #94a3b8; border-radius: 7px;
+      cursor: pointer; font-size: 0.88rem; line-height: 1;
+      pointer-events: all; transition: all 0.15s; text-align: center;
+    }
+    .float-lang-btn:hover { border-color: rgba(255,255,255,0.4); color: white; }
+    .float-lang-btn.active { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.5); color: white; }
+    /* コンテンツ */
+    .float-content { overflow-y: auto; max-height: 280px; }
+    .float-row { padding: 3px 0; line-height: 1.6; word-break: break-word; }
+    .float-row.mm { font-family: 'Noto Sans Myanmar', sans-serif; }
+    .float-empty { color: #475569; font-size: 0.78rem; font-style: italic; }
+    .float-speaking { color: #94a3b8; font-size: 0.78rem; font-style: italic; }
+    /* リサイズハンドル */
+    .float-resize {
+      position: absolute; bottom: 3px; right: 5px;
+      cursor: se-resize; color: #334155; font-size: 0.72rem;
+      pointer-events: all; touch-action: none; padding: 2px;
+    }
+    .float-resize:hover { color: #94a3b8; }
+    /* ヘッダーのトグルボタン */
+    .float-toggle-btn {
+      font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 10px;
       border-radius: 8px; border: 1.5px solid var(--border); cursor: pointer;
       white-space: nowrap; transition: all 0.15s;
     }
-    #floatToggleBtn:hover { border-color: var(--primary); color: var(--primary); }
-    #floatToggleBtn.active { background: var(--primary); color: white; border-color: var(--primary); }
+    .float-toggle-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .float-toggle-btn.active { background: var(--primary); color: white; border-color: var(--primary); }
 
     /* ── Install Banner ── */
     #installBanner {
@@ -338,20 +345,59 @@
   </div>
 </div>
 
-<!-- ── Floating Translation Panel ── -->
-<div id="floatPanel" style="display:none;">
+<!-- ── Floating Panels (3窓) ── -->
+<div id="floatPanel1" class="float-panel" style="display:none; right:20px; bottom:110px;">
   <div class="float-grip">
-    <span class="float-title">📍 最新翻訳</span>
+    <span class="float-title">📍 窓1</span>
     <div class="float-controls">
-      <button class="float-sz-btn" onclick="floatFont(-1)" title="文字を小さく">A−</button>
-      <button class="float-sz-btn" onclick="floatFont(+1)" title="文字を大きく">A+</button>
-      <button class="float-close" onclick="toggleFloat()">✕</button>
+      <button class="float-sz-btn" onclick="floatFont(1,-1)">A−</button>
+      <button class="float-sz-btn" onclick="floatFont(1,+1)">A+</button>
+      <button class="float-close" onclick="toggleFloat(1)">✕</button>
     </div>
   </div>
-  <div id="floatContent" class="float-content">
-    <div class="float-empty">翻訳するとここに表示されます</div>
+  <div class="float-lang-sel">
+    <button class="float-lang-btn" data-lang="ja" onclick="setFloatLang(1,'ja')">🇯🇵</button>
+    <button class="float-lang-btn active" data-lang="vi" onclick="setFloatLang(1,'vi')">🇻🇳</button>
+    <button class="float-lang-btn" data-lang="my" onclick="setFloatLang(1,'my')">🇲🇲</button>
   </div>
-  <div id="floatResizeHandle" title="ドラッグでサイズ変更">⇲</div>
+  <div id="floatContent1" class="float-content"><div class="float-empty">翻訳するとここに表示されます</div></div>
+  <div class="float-resize" data-n="1">⇲</div>
+</div>
+
+<div id="floatPanel2" class="float-panel" style="display:none; right:280px; bottom:110px;">
+  <div class="float-grip">
+    <span class="float-title">📍 窓2</span>
+    <div class="float-controls">
+      <button class="float-sz-btn" onclick="floatFont(2,-1)">A−</button>
+      <button class="float-sz-btn" onclick="floatFont(2,+1)">A+</button>
+      <button class="float-close" onclick="toggleFloat(2)">✕</button>
+    </div>
+  </div>
+  <div class="float-lang-sel">
+    <button class="float-lang-btn active" data-lang="ja" onclick="setFloatLang(2,'ja')">🇯🇵</button>
+    <button class="float-lang-btn" data-lang="vi" onclick="setFloatLang(2,'vi')">🇻🇳</button>
+    <button class="float-lang-btn" data-lang="my" onclick="setFloatLang(2,'my')">🇲🇲</button>
+  </div>
+  <div id="floatContent2" class="float-content"><div class="float-empty">翻訳するとここに表示されます</div></div>
+  <div class="float-resize" data-n="2">⇲</div>
+</div>
+
+<div id="floatPanel3" class="float-panel" style="display:none; left:20px; bottom:110px;">
+  <div class="float-grip">
+    <span class="float-title">📍 窓3</span>
+    <div class="float-controls">
+      <button class="float-sz-btn" onclick="floatFont(3,-1)">A−</button>
+      <button class="float-sz-btn" onclick="floatFont(3,+1)">A+</button>
+      <button class="float-close" onclick="toggleFloat(3)">✕</button>
+    </div>
+  </div>
+  <div class="float-lang-sel">
+    <button class="float-lang-btn" data-lang="ja" onclick="setFloatLang(3,'ja')">🇯🇵</button>
+    <button class="float-lang-btn" data-lang="vi" onclick="setFloatLang(3,'vi')">🇻🇳</button>
+    <button class="float-lang-btn active" data-lang="my" onclick="setFloatLang(3,'my')">🇲🇲</button>
+  </div>
+  <div id="floatContent3" class="float-content"><div class="float-empty">翻訳するとここに表示されます</div></div>
+  <div class="float-resize" data-n="3">⇲</div>
 </div>
 
 <!-- ── Install Banner ── -->
@@ -369,7 +415,9 @@
   </div>
   <div class="header-right">
     <span class="badge">🤖 Claude AI · コンテキスト10件</span>
-    <button id="floatToggleBtn" onclick="toggleFloat()">📍 フロート表示</button>
+    <button id="floatToggleBtn1" class="float-toggle-btn" onclick="toggleFloat(1)">📍 窓1</button>
+    <button id="floatToggleBtn2" class="float-toggle-btn" onclick="toggleFloat(2)">📍 窓2</button>
+    <button id="floatToggleBtn3" class="float-toggle-btn" onclick="toggleFloat(3)">📍 窓3</button>
     <button id="logoutBtn" onclick="logout()">🔒 ログアウト</button>
   </div>
 </header>
@@ -1140,125 +1188,137 @@ function exportCSV() {
 }
 
 /* ═══════════════════════════════════════
-   フローティングパネル
+   フローティングパネル (3窓対応)
 ═══════════════════════════════════════ */
-let floatVisible = false;
-let floatFontSize = 1.0;   // rem
-let isDragging   = false;
-let isResizing   = false;
+const FLOAT_N = [1, 2, 3];
+const floatState = {
+  1: { visible: false, lang: 'vi', fontSize: 1.0 },
+  2: { visible: false, lang: 'ja', fontSize: 1.0 },
+  3: { visible: false, lang: 'my', fontSize: 1.0 },
+};
+let draggingPanel = null, resizingPanel = null;
 let dragOffX = 0, dragOffY = 0;
 let resizeStartX = 0, resizeStartY = 0, resizeStartW = 0, resizeStartH = 0;
 
-function toggleFloat() {
-  const panel = document.getElementById('floatPanel');
-  const btn   = document.getElementById('floatToggleBtn');
-  floatVisible = !floatVisible;
-  panel.style.display = floatVisible ? 'block' : 'none';
-  btn.classList.toggle('active', floatVisible);
-  btn.textContent = floatVisible ? '📍 表示中' : '📍 フロート表示';
+function toggleFloat(n) {
+  const st  = floatState[n];
+  st.visible = !st.visible;
+  document.getElementById('floatPanel' + n).style.display = st.visible ? 'block' : 'none';
+  const btn = document.getElementById('floatToggleBtn' + n);
+  btn.classList.toggle('active', st.visible);
+  btn.textContent = st.visible ? `📍 窓${n} ON` : `📍 窓${n}`;
 }
 
-function floatFont(dir) {
-  floatFontSize = Math.min(2.4, Math.max(0.6, floatFontSize + dir * 0.15));
-  document.getElementById('floatContent').style.fontSize = floatFontSize + 'rem';
+function setFloatLang(n, lang) {
+  floatState[n].lang = lang;
+  document.querySelectorAll('#floatPanel' + n + ' .float-lang-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.lang === lang);
+  });
+}
+
+function floatFont(n, dir) {
+  const st = floatState[n];
+  st.fontSize = Math.min(2.4, Math.max(0.6, st.fontSize + dir * 0.15));
+  document.getElementById('floatContent' + n).style.fontSize = st.fontSize + 'rem';
 }
 
 function updateFloat(fromLang, translations) {
-  if (!floatVisible) return;
-  const flags = { ja:'🇯🇵', vi:'🇻🇳', my:'🇲🇲' };
-  const rows = Object.entries(translations)
-    .filter(([k, v]) => v && v !== '—')
-    .map(([k, v]) =>
-      `<div class="float-row"><span class="float-flag">${flags[k]||''}</span><span class="float-text${k==='my'?' mm':''}">${v}</span></div>`
-    ).join('');
-  const el = document.getElementById('floatContent');
-  el.innerHTML = rows || '<div class="float-empty">翻訳結果なし</div>';
-  el.style.fontSize = floatFontSize + 'rem';
+  FLOAT_N.forEach(n => {
+    const st = floatState[n];
+    if (!st.visible) return;
+    const el = document.getElementById('floatContent' + n);
+    el.style.fontSize = st.fontSize + 'rem';
+    if (st.lang === fromLang) {
+      el.innerHTML = '<div class="float-speaking">🎙 発話中…</div>';
+      return;
+    }
+    const text = translations[st.lang];
+    if (text && text !== '—') {
+      el.innerHTML = `<div class="float-row${st.lang === 'my' ? ' mm' : ''}">${text}</div>`;
+    } else {
+      el.innerHTML = '<div class="float-empty">—</div>';
+    }
+  });
 }
 
-/* ── ドラッグ移動 (マウス) ── */
-document.getElementById('floatPanel').addEventListener('mousedown', e => {
-  if (e.target.id === 'floatResizeHandle') return;
-  if (e.target.classList.contains('float-close') ||
-      e.target.classList.contains('float-sz-btn')) return;
-  isDragging = true;
-  const r = document.getElementById('floatPanel').getBoundingClientRect();
-  dragOffX = e.clientX - r.left;
-  dragOffY = e.clientY - r.top;
-  e.preventDefault();
+/* ── イベント登録 (3パネル共通) ── */
+FLOAT_N.forEach(n => {
+  const panel = document.getElementById('floatPanel' + n);
+  const resizeHandle = panel.querySelector('.float-resize');
+
+  // ドラッグ開始 (マウス)
+  panel.addEventListener('mousedown', e => {
+    if (e.target.classList.contains('float-resize') ||
+        e.target.classList.contains('float-close') ||
+        e.target.classList.contains('float-sz-btn') ||
+        e.target.classList.contains('float-lang-btn')) return;
+    draggingPanel = n;
+    const r = panel.getBoundingClientRect();
+    dragOffX = e.clientX - r.left; dragOffY = e.clientY - r.top;
+    e.preventDefault();
+  });
+
+  // ドラッグ開始 (タッチ)
+  panel.addEventListener('touchstart', e => {
+    if (e.target.classList.contains('float-resize') ||
+        e.target.classList.contains('float-close') ||
+        e.target.classList.contains('float-sz-btn') ||
+        e.target.classList.contains('float-lang-btn')) return;
+    draggingPanel = n;
+    const r = panel.getBoundingClientRect();
+    dragOffX = e.touches[0].clientX - r.left;
+    dragOffY = e.touches[0].clientY - r.top;
+  }, { passive: true });
+
+  // リサイズ開始 (マウス)
+  resizeHandle.addEventListener('mousedown', e => {
+    resizingPanel = n;
+    resizeStartX = e.clientX; resizeStartY = e.clientY;
+    resizeStartW = panel.offsetWidth; resizeStartH = panel.offsetHeight;
+    e.preventDefault(); e.stopPropagation();
+  });
+
+  // リサイズ開始 (タッチ)
+  resizeHandle.addEventListener('touchstart', e => {
+    resizingPanel = n;
+    resizeStartX = e.touches[0].clientX; resizeStartY = e.touches[0].clientY;
+    resizeStartW = panel.offsetWidth; resizeStartH = panel.offsetHeight;
+    e.stopPropagation();
+  }, { passive: true });
 });
 
-/* ── リサイズ (マウス) ── */
-document.getElementById('floatResizeHandle').addEventListener('mousedown', e => {
-  isResizing = true;
-  const panel = document.getElementById('floatPanel');
-  resizeStartX = e.clientX;
-  resizeStartY = e.clientY;
-  resizeStartW = panel.offsetWidth;
-  resizeStartH = panel.offsetHeight;
-  e.preventDefault();
-  e.stopPropagation();
-});
-
+// 移動・リサイズ中 (マウス)
 document.addEventListener('mousemove', e => {
-  if (isDragging) {
-    const panel = document.getElementById('floatPanel');
-    panel.style.left   = (e.clientX - dragOffX) + 'px';
-    panel.style.top    = (e.clientY - dragOffY) + 'px';
-    panel.style.right  = 'auto';
-    panel.style.bottom = 'auto';
+  if (draggingPanel) {
+    const p = document.getElementById('floatPanel' + draggingPanel);
+    p.style.left = (e.clientX - dragOffX) + 'px'; p.style.top = (e.clientY - dragOffY) + 'px';
+    p.style.right = 'auto'; p.style.bottom = 'auto';
   }
-  if (isResizing) {
-    const panel = document.getElementById('floatPanel');
-    const newW = Math.max(160, resizeStartW + (e.clientX - resizeStartX));
-    const newH = Math.max(80,  resizeStartH + (e.clientY - resizeStartY));
-    panel.style.width     = newW + 'px';
-    panel.style.minHeight = newH + 'px';
+  if (resizingPanel) {
+    const p = document.getElementById('floatPanel' + resizingPanel);
+    p.style.width     = Math.max(150, resizeStartW + e.clientX - resizeStartX) + 'px';
+    p.style.minHeight = Math.max(80,  resizeStartH + e.clientY - resizeStartY) + 'px';
   }
 });
-document.addEventListener('mouseup', () => { isDragging = false; isResizing = false; });
+document.addEventListener('mouseup', () => { draggingPanel = null; resizingPanel = null; });
 
-/* ── ドラッグ移動 (タッチ) ── */
-document.getElementById('floatPanel').addEventListener('touchstart', e => {
-  if (e.target.id === 'floatResizeHandle') return;
-  if (e.target.classList.contains('float-close') ||
-      e.target.classList.contains('float-sz-btn')) return;
-  isDragging = true;
-  const r = document.getElementById('floatPanel').getBoundingClientRect();
-  dragOffX = e.touches[0].clientX - r.left;
-  dragOffY = e.touches[0].clientY - r.top;
-}, { passive: true });
-
-/* ── リサイズ (タッチ) ── */
-document.getElementById('floatResizeHandle').addEventListener('touchstart', e => {
-  isResizing = true;
-  const panel = document.getElementById('floatPanel');
-  resizeStartX = e.touches[0].clientX;
-  resizeStartY = e.touches[0].clientY;
-  resizeStartW = panel.offsetWidth;
-  resizeStartH = panel.offsetHeight;
-  e.stopPropagation();
-}, { passive: true });
-
+// 移動・リサイズ中 (タッチ)
 document.addEventListener('touchmove', e => {
-  if (isDragging) {
+  if (draggingPanel) {
     e.preventDefault();
-    const panel = document.getElementById('floatPanel');
-    panel.style.left   = (e.touches[0].clientX - dragOffX) + 'px';
-    panel.style.top    = (e.touches[0].clientY - dragOffY) + 'px';
-    panel.style.right  = 'auto';
-    panel.style.bottom = 'auto';
+    const p = document.getElementById('floatPanel' + draggingPanel);
+    p.style.left = (e.touches[0].clientX - dragOffX) + 'px';
+    p.style.top  = (e.touches[0].clientY - dragOffY) + 'px';
+    p.style.right = 'auto'; p.style.bottom = 'auto';
   }
-  if (isResizing) {
+  if (resizingPanel) {
     e.preventDefault();
-    const panel = document.getElementById('floatPanel');
-    const newW = Math.max(160, resizeStartW + (e.touches[0].clientX - resizeStartX));
-    const newH = Math.max(80,  resizeStartH + (e.touches[0].clientY - resizeStartY));
-    panel.style.width     = newW + 'px';
-    panel.style.minHeight = newH + 'px';
+    const p = document.getElementById('floatPanel' + resizingPanel);
+    p.style.width     = Math.max(150, resizeStartW + e.touches[0].clientX - resizeStartX) + 'px';
+    p.style.minHeight = Math.max(80,  resizeStartH + e.touches[0].clientY - resizeStartY) + 'px';
   }
 }, { passive: false });
-document.addEventListener('touchend', () => { isDragging = false; isResizing = false; });
+document.addEventListener('touchend', () => { draggingPanel = null; resizingPanel = null; });
 
 /* ── 起動時セッション確認 ── */
 checkSession();
