@@ -3,13 +3,21 @@
   "version": "2.0.0",
   "description": "Real-time 3-language mutual interpretation with context-aware translation",
   "main": "server.js",
-  "engines": { "node": ">=18.0.0" },
-  "scripts": { "start": "node server.js" },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
+    "adm-zip": "^0.6.0",
     "dotenv": "^17.4.2",
     "express": "^4.18.0",
+    "multer": "^2.2.0",
+    "pizzip": "^3.2.0",
     "qrcode": "^1.5.4",
-    "selfsigned": "^5.5.0"
+    "selfsigned": "^5.5.0",
+    "xlsx": "^0.18.5"
   }
 }

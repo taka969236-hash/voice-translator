@@ -8,6 +8,10 @@ const crypto     = require('crypto');
 const path = require('path');
 const os   = require('os');
 const fs   = require('fs');
+const multer = require('multer');
+const XLSX   = require('xlsx');
+const PizZip = require('pizzip');
+const AdmZip = require('adm-zip');
 
 /* ── 本番(Render) か ローカルか ── */
 const IS_PROD = !!(process.env.RENDER || process.env.NODE_ENV === 'production');
@@ -243,6 +247,147 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   if (!res.writableEnded) {
     sse({ error: 'すべてのモデルで翻訳に失敗しました' });
     res.end();
+  }
+});
+
+/* ── ドキュメント翻訳 ── */
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' };
+const DOC_BATCH = 40;
+
+async function translateDocBatch(texts, targetLang, client) {
+  if (!texts.length) return [];
+  const prompt = `Translate the following Japanese texts to ${DOC_LANG_NAMES[targetLang]}.\nReturn ONLY a JSON array of ${texts.length} translated strings in the same order. No explanation.\n\nInput: ${JSON.stringify(texts)}\n\nOutput:`;
+  const resp = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001', max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const raw = resp.content[0].text.trim();
+  const m = raw.match(/\[[\s\S]*\]/);
+  return JSON.parse(m ? m[0] : raw);
+}
+
+async function translateDocTexts(texts, targetLang, client) {
+  const results = [...texts];
+  const idxs = texts.reduce((a, t, i) => (t && t.trim() ? [...a, i] : a), []);
+  for (let b = 0; b < idxs.length; b += DOC_BATCH) {
+    const batch = idxs.slice(b, b + DOC_BATCH);
+    const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client);
+    batch.forEach((oi, j) => { if (translated[j]) results[oi] = translated[j]; });
+  }
+  return results;
+}
+
+function escXml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function extractExcelTexts(buf) {
+  const wb = XLSX.read(buf, { type: 'buffer' });
+  const seen = new Set(); const texts = [];
+  wb.SheetNames.forEach(n => {
+    const ws = wb.Sheets[n];
+    Object.keys(ws).filter(k => !k.startsWith('!')).forEach(addr => {
+      const c = ws[addr];
+      if (c.t === 's' && c.v && c.v.trim() && !seen.has(c.v)) { seen.add(c.v); texts.push(c.v); }
+    });
+  });
+  return texts;
+}
+
+function processExcel(buf, translations, origTexts) {
+  const wb = XLSX.read(buf, { type: 'buffer' });
+  const map = Object.fromEntries(origTexts.map((t, i) => [t, translations[i]]));
+  wb.SheetNames.forEach(n => {
+    const ws = wb.Sheets[n];
+    Object.keys(ws).filter(k => !k.startsWith('!')).forEach(addr => {
+      const c = ws[addr];
+      if (c.t === 's' && c.v && map[c.v]) { c.v = map[c.v]; delete c.r; delete c.h; }
+    });
+  });
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+}
+
+function extractDocxTexts(buf) {
+  const zip = new PizZip(buf);
+  const xml = zip.file('word/document.xml').asText();
+  const paras = [];
+  const re = /<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const txt = [...m[0].matchAll(/<w:t(?:[^>]*)?>([^<]*)<\/w:t>/g)].map(r => r[1]).join('');
+    if (txt.trim()) paras.push({ text: txt.trim(), index: m.index, length: m[0].length });
+  }
+  return { xml, paras };
+}
+
+function rebuildDocx(buf, translations, { xml, paras }) {
+  let newXml = xml;
+  for (let i = paras.length - 1; i >= 0; i--) {
+    const { index, length } = paras[i];
+    const trans = translations[i];
+    if (!trans) continue;
+    let replaced = false;
+    const newPara = newXml.slice(index, index + length).replace(/<w:t([^>]*)>([^<]*)<\/w:t>/g, (_, a) => {
+      if (!replaced) { replaced = true; return `<w:t${a}>${escXml(trans)}</w:t>`; }
+      return `<w:t${a}></w:t>`;
+    });
+    newXml = newXml.slice(0, index) + newPara + newXml.slice(index + length);
+  }
+  const zip = new PizZip(buf);
+  zip.file('word/document.xml', newXml);
+  return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
+app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'), async (req, res) => {
+  if (!req.file)   return res.status(400).json({ error: 'ファイルが必要です' });
+  if (!anthropic)  return res.status(503).json({ error: 'ANTHROPIC_API_KEY が未設定です' });
+
+  const langs = [req.body.langs].flat().filter(Boolean);
+  if (!langs.length) return res.status(400).json({ error: '言語を選択してください' });
+
+  const ext  = path.extname(req.file.originalname).toLowerCase();
+  const stem = path.basename(req.file.originalname, ext);
+  if (!['.xlsx', '.docx'].includes(ext))
+    return res.status(400).json({ error: '.xlsx または .docx のみ対応しています' });
+
+  try {
+    const outputs = [];
+    for (const lang of langs) {
+      const suffix = lang === 'Vietnamese' ? '_vi' : '_my';
+      let outBuf;
+      if (ext === '.xlsx') {
+        const texts = extractExcelTexts(req.file.buffer);
+        const translated = await translateDocTexts(texts, lang, anthropic);
+        outBuf = processExcel(req.file.buffer, translated, texts);
+      } else {
+        const info = extractDocxTexts(req.file.buffer);
+        const texts = info.paras.map(p => p.text);
+        const translated = await translateDocTexts(texts, lang, anthropic);
+        outBuf = rebuildDocx(req.file.buffer, translated, info);
+      }
+      outputs.push({ name: `${stem}${suffix}${ext}`, buf: outBuf });
+    }
+
+    if (outputs.length === 1) {
+      const { name, buf } = outputs[0];
+      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+      res.setHeader('Content-Type', ext === '.xlsx'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      return res.send(buf);
+    }
+
+    const zip = new AdmZip();
+    outputs.forEach(o => zip.addFile(o.name, o.buf));
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(stem + '_翻訳.zip')}`);
+    res.setHeader('Content-Type', 'application/zip');
+    res.send(zip.toBuffer());
+
+  } catch (err) {
+    console.error('[translate-doc]', err.message);
+    res.status(500).json({ error: `翻訳エラー: ${err.message}` });
   }
 });
 

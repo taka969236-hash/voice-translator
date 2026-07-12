@@ -329,6 +329,63 @@
     .dismiss { background: transparent !important; color: #94a3b8 !important; padding: 7px !important; }
 
     .footer-note { text-align: center; color: var(--muted); font-size: 0.7rem; margin-top: 4px; max-width: 1100px; }
+
+    /* ── Section Tabs ── */
+    .section-tabs {
+      display: flex; gap: 0; width: 100%; max-width: 1100px; margin-bottom: 12px;
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: 0 2px 16px rgba(0,0,0,0.07); overflow: hidden;
+    }
+    .section-tab {
+      flex: 1; padding: 12px 8px; border: none; background: transparent;
+      font-size: 0.9rem; font-weight: 700; cursor: pointer; color: var(--muted);
+      transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .section-tab.active { background: var(--primary); color: white; }
+    .section-tab:not(.active):hover { background: #f1f5f9; color: var(--primary); }
+
+    /* ── Document Section ── */
+    #docSection { display: none; width: 100%; max-width: 1100px; }
+    .doc-card {
+      background: var(--surface); border-radius: var(--radius);
+      box-shadow: 0 2px 16px rgba(0,0,0,0.07); padding: 24px;
+    }
+    .doc-drop {
+      border: 2px dashed var(--border); border-radius: 12px;
+      padding: 36px 20px; text-align: center; cursor: pointer;
+      transition: border-color .2s, background .2s; color: var(--muted);
+      margin-bottom: 16px;
+    }
+    .doc-drop:hover, .doc-drop.drag-over { border-color: var(--primary); background: #eef2ff; color: var(--primary); }
+    .doc-drop .doc-icon { font-size: 2.2rem; margin-bottom: 6px; }
+    .doc-drop .doc-hint { font-size: 0.78rem; margin-top: 4px; color: #94a3b8; }
+    .doc-file-name {
+      display: none; align-items: center; gap: 10px;
+      background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 10px;
+      padding: 10px 14px; margin-bottom: 16px; font-size: 0.88rem; color: #166534;
+    }
+    .doc-file-name .doc-remove { margin-left: auto; cursor: pointer; color: #dc2626; font-size: 1.1rem; }
+    .doc-lang-row { display: flex; gap: 12px; margin-bottom: 20px; }
+    .doc-lang-label {
+      flex: 1; display: flex; align-items: center; gap: 8px; cursor: pointer;
+      font-size: 0.9rem; color: var(--text); background: #f8fafc;
+      border: 1.5px solid var(--border); border-radius: 10px; padding: 10px 14px;
+      transition: border-color .15s, background .15s;
+    }
+    .doc-lang-label:has(input:checked) { border-color: var(--primary); background: #eef2ff; color: var(--primary); }
+    .doc-lang-label input[type=checkbox] { accent-color: var(--primary); width: 16px; height: 16px; }
+    .doc-translate-btn {
+      width: 100%; padding: 13px; background: #15803d; color: white;
+      border: none; border-radius: 10px; font-size: 1rem; font-weight: 700;
+      cursor: pointer; transition: background .15s, opacity .15s;
+    }
+    .doc-translate-btn:hover:not(:disabled) { background: #166534; }
+    .doc-translate-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .doc-loading { display: none; flex-direction: column; align-items: center; gap: 12px; padding: 20px 0 4px; }
+    .doc-loading p { color: var(--muted); font-size: .88rem; }
+    .doc-loading small { color: #94a3b8; font-size: .78rem; }
+    .doc-result { display: none; background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 10px; padding: 14px; margin-top: 16px; font-size: .88rem; color: #166534; }
+    .doc-error  { display: none; background: #fef2f2; border: 1.5px solid #fecaca; border-radius: 10px; padding: 14px; margin-top: 16px; font-size: .88rem; color: #991b1b; }
   </style>
 </head>
 <body>
@@ -436,6 +493,13 @@
   </div>
 </div>
 
+<!-- ── Section Tabs ── -->
+<div class="section-tabs">
+  <button class="section-tab active" id="tabVoice" onclick="switchSection('voice')">🎤 音声通訳</button>
+  <button class="section-tab" id="tabDoc"   onclick="switchSection('doc')">📄 文書翻訳</button>
+</div>
+
+<div id="voiceSection">
 <!-- ── Mode Toggle ── -->
 <div class="mode-card">
   <span class="mode-label">モード</span>
@@ -628,6 +692,36 @@
 </div>
 
 <p class="footer-note">翻訳エンジン: Claude AI (Haiku) · コンテキスト直近10件 · 音声認識: Chrome/Edge/Android Chrome 対応</p>
+</div><!-- #voiceSection -->
+
+<!-- ── Document Translation Section ── -->
+<div id="docSection">
+  <div class="doc-card">
+    <div class="doc-drop" id="docDrop">
+      <div class="doc-icon">📄</div>
+      <div>ここにファイルをドロップ</div>
+      <div class="doc-hint">または クリックして選択 (.docx / .xlsx)</div>
+    </div>
+    <input type="file" id="docFileInput" accept=".docx,.xlsx" hidden>
+    <div class="doc-file-name" id="docFileName">
+      <span>📎</span><span id="docFileNameText"></span>
+      <span class="doc-remove" id="docRemove">✕</span>
+    </div>
+    <div class="doc-lang-row">
+      <label class="doc-lang-label"><input type="checkbox" id="docLangVi" checked> 🇻🇳 ベトナム語</label>
+      <label class="doc-lang-label"><input type="checkbox" id="docLangMy" checked> 🇲🇲 ミャンマー語</label>
+    </div>
+    <button class="doc-translate-btn" id="docTranslateBtn">翻訳 開始</button>
+    <div class="doc-loading" id="docLoading">
+      <div class="spinner"></div>
+      <p>翻訳中... しばらくお待ちください</p>
+      <small>テキスト量によって30秒〜2分かかります</small>
+    </div>
+    <div class="doc-result" id="docResult">✅ 翻訳完了！ファイルのダウンロードが始まります。</div>
+    <div class="doc-error"  id="docError"></div>
+  </div>
+  <p class="footer-note" style="margin-top:8px">翻訳エンジン: Claude AI (Haiku) · Excel (.xlsx) / Word (.docx) 対応 · 書式保持</p>
+</div>
 
 <script>
 /* ── Apple Touch Icon ── */
@@ -1393,6 +1487,103 @@ document.addEventListener('touchend', () => { draggingPanel = null; resizingPane
 
 /* ── 起動時セッション確認 ── */
 checkSession();
+
+/* ── Section Tab Switch ── */
+function switchSection(name) {
+  const isVoice = name === 'voice';
+  document.getElementById('voiceSection').style.display = isVoice ? '' : 'none';
+  document.getElementById('docSection').style.display   = isVoice ? 'none' : '';
+  document.getElementById('tabVoice').classList.toggle('active', isVoice);
+  document.getElementById('tabDoc').classList.toggle('active', !isVoice);
+}
+
+/* ── Document Translation ── */
+let docSelectedFile = null;
+
+(function initDocUI() {
+  const drop    = document.getElementById('docDrop');
+  const input   = document.getElementById('docFileInput');
+  const nameBox = document.getElementById('docFileName');
+  const nameText= document.getElementById('docFileNameText');
+  const remove  = document.getElementById('docRemove');
+  const btn     = document.getElementById('docTranslateBtn');
+  const loading = document.getElementById('docLoading');
+  const result  = document.getElementById('docResult');
+  const errBox  = document.getElementById('docError');
+
+  drop.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => setDocFile(input.files[0]));
+  drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag-over'); });
+  drop.addEventListener('dragleave', () => drop.classList.remove('drag-over'));
+  drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('drag-over'); setDocFile(e.dataTransfer.files[0]); });
+  remove.addEventListener('click', clearDocFile);
+
+  function setDocFile(file) {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['docx','xlsx'].includes(ext)) { showDocError('.docx または .xlsx を選択してください'); return; }
+    docSelectedFile = file;
+    nameText.textContent = file.name;
+    nameBox.style.display = 'flex';
+    drop.style.display = 'none';
+    hideDocMessages();
+  }
+
+  function clearDocFile() {
+    docSelectedFile = null; input.value = '';
+    nameBox.style.display = 'none'; drop.style.display = '';
+    hideDocMessages();
+  }
+
+  btn.addEventListener('click', async () => {
+    if (!docSelectedFile) { showDocError('ファイルを選択してください'); return; }
+    const langs = [];
+    if (document.getElementById('docLangVi').checked) langs.push('Vietnamese');
+    if (document.getElementById('docLangMy').checked) langs.push('Burmese');
+    if (!langs.length) { showDocError('出力言語を選択してください'); return; }
+
+    btn.disabled = true;
+    loading.style.display = 'flex';
+    hideDocMessages();
+
+    try {
+      const fd = new FormData();
+      fd.append('file', docSelectedFile);
+      langs.forEach(l => fd.append('langs', l));
+
+      const res = await fetch('/api/translate-doc', {
+        method: 'POST', body: fd,
+        headers: { 'x-session-token': sessionToken },
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: `サーバーエラー (${res.status})` }));
+        throw new Error(data.error || `サーバーエラー (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const cd = res.headers.get('Content-Disposition') || '';
+      const m  = cd.match(/filename\*?=(?:UTF-8'')?([^;\n]*)/i);
+      const filename = m ? decodeURIComponent(m[1].replace(/['"]/g,'')) : '翻訳.zip';
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+
+      result.style.display = 'block';
+    } catch(err) {
+      showDocError(err.message);
+    } finally {
+      btn.disabled = false;
+      loading.style.display = 'none';
+    }
+  });
+
+  function showDocError(msg) { errBox.textContent = '❌ ' + msg; errBox.style.display = 'block'; result.style.display = 'none'; }
+  function hideDocMessages() { errBox.style.display = 'none'; result.style.display = 'none'; }
+})();
 </script>
 </body>
 </html>
