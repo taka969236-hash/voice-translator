@@ -1499,117 +1499,171 @@ document.addEventListener('touchmove', e => {
 }, { passive: false });
 document.addEventListener('touchend', () => { draggingPanel = null; resizingPanel = null; });
 
-/* ── Document Picture-in-Picture ── */
-const pipWins = {};
+/* ── Document Picture-in-Picture（複数パネル合体）── */
+const pipActive = new Set();   // PiPに表示中のパネル番号
+let currentPipWin = null;
+let pipFontSize = 1.05;
 const PIP_LANG_NAME = { ja: '🇯🇵 日本語', vi: '🇻🇳 ベトナム語', my: '🇲🇲 ミャンマー語' };
+
+const PIP_CSS = `
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI','Noto Sans JP','Noto Sans Myanmar',sans-serif;
+       background:#1e1b4b;color:#e0e7ff;
+       display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  #pip-toolbar{background:#111827;padding:5px 10px;display:flex;align-items:center;
+               gap:6px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,.1)}
+  #pip-toolbar span{font-size:.72rem;color:#6b7280;flex:1}
+  .sz{background:rgba(255,255,255,.1);border:none;border-radius:4px;padding:2px 8px;
+      cursor:pointer;font-size:.76rem;color:#a5b4fc}
+  .sz:hover{background:rgba(255,255,255,.22)}
+  #pip-panels{flex:1;overflow-y:auto}
+  .pip-panel{border-bottom:1px solid rgba(255,255,255,.08)}
+  .pip-panel:last-child{border-bottom:none}
+  .pip-ph{background:#312e81;padding:6px 10px;display:flex;align-items:center;gap:5px}
+  .pip-ph-title{font-size:.76rem;font-weight:700;flex:1}
+  .pip-ph-btns{display:flex;gap:3px}
+  .lb{background:rgba(255,255,255,.15);border:none;border-radius:4px;padding:2px 6px;
+      cursor:pointer;font-size:.72rem;color:#c7d2fe}
+  .lb.active{background:#4f46e5;color:white}
+  .lb:hover:not(.active){background:rgba(255,255,255,.28)}
+  .rm{background:rgba(239,68,68,.25);border:none;border-radius:4px;padding:2px 7px;
+      cursor:pointer;font-size:.72rem;color:#fca5a5}
+  .rm:hover{background:rgba(239,68,68,.5)}
+  .pip-ct{padding:12px;word-break:break-word;line-height:1.9}
+  .float-empty{color:rgba(255,255,255,.35);font-style:italic;font-size:.84rem}
+  .float-speaking{color:#a5b4fc;font-style:italic;font-size:.84rem}
+  .float-row{font-size:1.05rem}
+  .mm,.float-row.mm{font-family:'Noto Sans Myanmar',sans-serif}
+  #pip-empty{padding:24px;text-align:center;color:rgba(255,255,255,.3);
+             font-size:.84rem;font-style:italic}
+`;
 
 async function openPip(n) {
   if (!('documentPictureInPicture' in window)) {
-    alert('Document Picture-in-Picture は Chrome 116 以降が必要です。\nhttps://chrome.google.com でアップデートしてください。');
+    alert('この機能は Chrome 116 以降が必要です。');
     return;
   }
+  // すでにPiPに入っていれば取り外す
+  if (pipActive.has(n)) { removePipPanel(n); return; }
 
-  // 既に開いていれば閉じる
-  if (pipWins[n] && !pipWins[n].closed) {
-    pipWins[n].close();
-    return;
-  }
+  pipActive.add(n);
+  updatePipBtn(n, true);
 
-  const lang = floatState[n].lang;
-  try {
-    const pipWin = await window.documentPictureInPicture.requestWindow({ width: 380, height: 220 });
-    pipWins[n] = pipWin;
-
-    // スタイル注入
-    const st = pipWin.document.createElement('style');
-    st.textContent = `
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{
-        font-family:'Segoe UI','Noto Sans JP','Noto Sans Myanmar',sans-serif;
-        background:#1e1b4b;color:#e0e7ff;
-        display:flex;flex-direction:column;height:100dvh;overflow:hidden
-      }
-      .ph{background:#312e81;padding:7px 10px;display:flex;align-items:center;gap:6px;flex-shrink:0}
-      .ph-title{font-size:.8rem;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-      .ph-btns{display:flex;gap:3px;flex-shrink:0}
-      .lb{background:rgba(255,255,255,.15);border:none;border-radius:4px;padding:3px 7px;
-          cursor:pointer;font-size:.76rem;color:#c7d2fe}
-      .lb.active{background:#4f46e5;color:white}
-      .lb:hover:not(.active){background:rgba(255,255,255,.28)}
-      .sz{background:rgba(255,255,255,.1);border:none;border-radius:4px;padding:2px 7px;
-          cursor:pointer;font-size:.76rem;color:#a5b4fc}
-      .sz:hover{background:rgba(255,255,255,.22)}
-      .ct{flex:1;overflow-y:auto;padding:13px;word-break:break-word;line-height:1.9}
-      .float-empty,.ct-empty{color:rgba(255,255,255,.35);font-style:italic;font-size:.84rem}
-      .float-speaking{color:#a5b4fc;font-style:italic;font-size:.84rem}
-      .float-row{font-size:1.05rem}
-      .mm,.float-row.mm{font-family:'Noto Sans Myanmar',sans-serif}
-    `;
-    pipWin.document.head.appendChild(st);
-
-    let pipFontSize = floatState[n].fontSize;
-    pipWin.document.body.innerHTML = `
-      <div class="ph">
-        <span class="ph-title" id="pt">📍 窓${n} · ${PIP_LANG_NAME[lang]}</span>
-        <div class="ph-btns">
-          <button class="lb ${lang==='ja'?'active':''}" data-l="ja">🇯🇵</button>
-          <button class="lb ${lang==='vi'?'active':''}" data-l="vi">🇻🇳</button>
-          <button class="lb ${lang==='my'?'active':''}" data-l="my">🇲🇲</button>
-          <button class="sz" data-sz="-1">A−</button>
-          <button class="sz" data-sz="+1">A+</button>
-        </div>
-      </div>
-      <div class="ct" id="pc" style="font-size:${pipFontSize}rem">
-        <div class="ct-empty">翻訳するとここに表示されます</div>
-      </div>
-    `;
-
-    // 言語切替ボタン（クロージャでメインウィンドウ関数を呼ぶ）
-    pipWin.document.querySelectorAll('.lb').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const nl = btn.dataset.l;
-        setFloatLang(n, nl);
-        pipWin.document.querySelectorAll('.lb').forEach(b => b.classList.toggle('active', b.dataset.l === nl));
-        pipWin.document.getElementById('pt').textContent = `📍 窓${n} · ${PIP_LANG_NAME[nl]}`;
-        refreshPipContent(n);
-      });
-    });
-
-    // フォントサイズ
-    pipWin.document.querySelectorAll('.sz').forEach(btn => {
-      btn.addEventListener('click', () => {
-        pipFontSize = Math.min(2.4, Math.max(0.7, pipFontSize + parseInt(btn.dataset.sz) * 0.15));
-        pipWin.document.getElementById('pc').style.fontSize = pipFontSize + 'rem';
-      });
-    });
-
-    // PiP窓が閉じられたとき
-    pipWin.addEventListener('pagehide', () => {
-      delete pipWins[n];
-      const pipBtn = document.querySelector(`[data-pip="${n}"]`);
-      if (pipBtn) { pipBtn.textContent = '⤢ PiP'; pipBtn.classList.remove('active'); }
-    });
-
-    // ボタン状態更新
-    const pipBtn = document.querySelector(`[data-pip="${n}"]`);
-    if (pipBtn) { pipBtn.textContent = '✕ PiP'; pipBtn.classList.add('active'); }
-
-    refreshPipContent(n);
-
-  } catch (err) {
-    if (err.name !== 'NotAllowedError') {
-      console.error('PiP error:', err);
-      alert('PiP エラー: ' + err.message);
-    }
+  if (!currentPipWin || currentPipWin.closed) {
+    await createPipWindow();
+  } else {
+    renderPipPanels();
   }
 }
 
+async function createPipWindow() {
+  try {
+    const pipWin = await window.documentPictureInPicture.requestWindow({
+      width: 400, height: Math.min(100 + pipActive.size * 180, 540),
+    });
+    currentPipWin = pipWin;
+
+    const st = pipWin.document.createElement('style');
+    st.textContent = PIP_CSS;
+    pipWin.document.head.appendChild(st);
+    pipWin.document.title = '翻訳ウィンドウ';
+    pipWin.document.body.innerHTML = `
+      <div id="pip-toolbar">
+        <span>翻訳ウィンドウ（最前面）</span>
+        <button class="sz" data-sz="-1">A−</button>
+        <button class="sz" data-sz="+1">A+</button>
+      </div>
+      <div id="pip-panels"></div>
+    `;
+
+    pipWin.document.querySelectorAll('.sz').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pipFontSize = Math.min(2.4, Math.max(0.7, pipFontSize + parseInt(btn.dataset.sz) * 0.15));
+        pipWin.document.querySelectorAll('.pip-ct').forEach(el => el.style.fontSize = pipFontSize + 'rem');
+      });
+    });
+
+    pipWin.addEventListener('pagehide', () => {
+      currentPipWin = null;
+      [...pipActive].forEach(pn => { pipActive.delete(pn); updatePipBtn(pn, false); });
+    });
+
+    renderPipPanels();
+  } catch (err) {
+    [...pipActive].forEach(pn => { pipActive.delete(pn); updatePipBtn(pn, false); });
+    if (err.name !== 'NotAllowedError') alert('PiP エラー: ' + err.message);
+  }
+}
+
+function removePipPanel(n) {
+  pipActive.delete(n);
+  updatePipBtn(n, false);
+  if (pipActive.size === 0 && currentPipWin && !currentPipWin.closed) {
+    currentPipWin.close();
+  } else {
+    renderPipPanels();
+  }
+}
+
+function renderPipPanels() {
+  if (!currentPipWin || currentPipWin.closed) return;
+  const container = currentPipWin.document.getElementById('pip-panels');
+  if (!container) return;
+
+  if (pipActive.size === 0) {
+    container.innerHTML = '<div id="pip-empty">パネルを追加してください</div>';
+    return;
+  }
+
+  container.innerHTML = [...pipActive].map(pn => {
+    const lang = floatState[pn].lang;
+    return `
+      <div class="pip-panel" id="pip-panel-${pn}">
+        <div class="pip-ph">
+          <span class="pip-ph-title">📍 窓${pn} · ${PIP_LANG_NAME[lang]}</span>
+          <div class="pip-ph-btns">
+            <button class="lb ${lang==='ja'?'active':''}" data-n="${pn}" data-l="ja">🇯🇵</button>
+            <button class="lb ${lang==='vi'?'active':''}" data-n="${pn}" data-l="vi">🇻🇳</button>
+            <button class="lb ${lang==='my'?'active':''}" data-n="${pn}" data-l="my">🇲🇲</button>
+            <button class="rm" data-n="${pn}">✕</button>
+          </div>
+        </div>
+        <div class="pip-ct" id="pip-ct-${pn}" style="font-size:${pipFontSize}rem">
+          ${document.getElementById('floatContent' + pn).innerHTML}
+        </div>
+      </div>`;
+  }).join('');
+
+  // 言語ボタン（クロージャでメイン関数を呼ぶ）
+  container.querySelectorAll('.lb').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const pn = parseInt(btn.dataset.n), nl = btn.dataset.l;
+      setFloatLang(pn, nl);
+      container.querySelectorAll(`.lb[data-n="${pn}"]`).forEach(b => b.classList.toggle('active', b.dataset.l === nl));
+      const title = container.querySelector(`#pip-panel-${pn} .pip-ph-title`);
+      if (title) title.textContent = `📍 窓${pn} · ${PIP_LANG_NAME[nl]}`;
+      refreshPipContent(pn);
+    });
+  });
+
+  // 削除ボタン
+  container.querySelectorAll('.rm').forEach(btn => {
+    btn.addEventListener('click', () => removePipPanel(parseInt(btn.dataset.n)));
+  });
+}
+
 function refreshPipContent(n) {
-  const pipWin = pipWins[n];
-  if (!pipWin || pipWin.closed) return;
+  if (!currentPipWin || currentPipWin.closed || !pipActive.has(n)) return;
   const src  = document.getElementById('floatContent' + n);
-  const dest = pipWin.document.getElementById('pc');
+  const dest = currentPipWin.document.getElementById('pip-ct-' + n);
   if (src && dest) dest.innerHTML = src.innerHTML;
+}
+
+function updatePipBtn(n, active) {
+  const btn = document.querySelector(`[data-pip="${n}"]`);
+  if (!btn) return;
+  btn.textContent = active ? '✕ PiP' : '⤢ PiP';
+  btn.classList.toggle('active', active);
 }
 
 /* ── 起動時セッション確認 ── */
