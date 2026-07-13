@@ -386,6 +386,16 @@
     .doc-loading small { color: #94a3b8; font-size: .78rem; }
     .doc-result { display: none; background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 10px; padding: 14px; margin-top: 16px; font-size: .88rem; color: #166534; }
     .doc-error  { display: none; background: #fef2f2; border: 1.5px solid #fecaca; border-radius: 10px; padding: 14px; margin-top: 16px; font-size: .88rem; color: #991b1b; }
+
+    /* ── PiP Button ── */
+    .float-pip-btn {
+      background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.3);
+      color: white; border-radius: 5px; padding: 2px 7px;
+      cursor: pointer; font-size: 0.72rem; font-weight: 700;
+      transition: background .15s; white-space: nowrap;
+    }
+    .float-pip-btn:hover { background: rgba(255,255,255,.35); }
+    .float-pip-btn.active { background: #ef4444; border-color: #ef4444; }
   </style>
 </head>
 <body>
@@ -408,6 +418,7 @@
   <div class="float-grip">
     <span class="float-title">📍 窓1</span>
     <div class="float-controls">
+      <button class="float-pip-btn" data-pip="1" onclick="openPip(1)">⤢ PiP</button>
       <button class="float-sz-btn" onclick="floatFont(1,-1)">A−</button>
       <button class="float-sz-btn" onclick="floatFont(1,+1)">A+</button>
       <button class="float-close" onclick="toggleFloat(1)">✕</button>
@@ -426,6 +437,7 @@
   <div class="float-grip">
     <span class="float-title">📍 窓2</span>
     <div class="float-controls">
+      <button class="float-pip-btn" data-pip="2" onclick="openPip(2)">⤢ PiP</button>
       <button class="float-sz-btn" onclick="floatFont(2,-1)">A−</button>
       <button class="float-sz-btn" onclick="floatFont(2,+1)">A+</button>
       <button class="float-close" onclick="toggleFloat(2)">✕</button>
@@ -444,6 +456,7 @@
   <div class="float-grip">
     <span class="float-title">📍 窓3</span>
     <div class="float-controls">
+      <button class="float-pip-btn" data-pip="3" onclick="openPip(3)">⤢ PiP</button>
       <button class="float-sz-btn" onclick="floatFont(3,-1)">A−</button>
       <button class="float-sz-btn" onclick="floatFont(3,+1)">A+</button>
       <button class="float-close" onclick="toggleFloat(3)">✕</button>
@@ -1395,14 +1408,15 @@ function updateFloat(fromLang, translations) {
     el.style.fontSize = st.fontSize + 'rem';
     if (st.lang === fromLang) {
       el.innerHTML = '<div class="float-speaking">🎙 発話中…</div>';
-      return;
-    }
-    const text = translations[st.lang];
-    if (text && text !== '—') {
-      el.innerHTML = `<div class="float-row${st.lang === 'my' ? ' mm' : ''}">${text}</div>`;
     } else {
-      el.innerHTML = '<div class="float-empty">—</div>';
+      const text = translations[st.lang];
+      if (text && text !== '—') {
+        el.innerHTML = `<div class="float-row${st.lang === 'my' ? ' mm' : ''}">${text}</div>`;
+      } else {
+        el.innerHTML = '<div class="float-empty">—</div>';
+      }
     }
+    refreshPipContent(n);
   });
 }
 
@@ -1484,6 +1498,119 @@ document.addEventListener('touchmove', e => {
   }
 }, { passive: false });
 document.addEventListener('touchend', () => { draggingPanel = null; resizingPanel = null; });
+
+/* ── Document Picture-in-Picture ── */
+const pipWins = {};
+const PIP_LANG_NAME = { ja: '🇯🇵 日本語', vi: '🇻🇳 ベトナム語', my: '🇲🇲 ミャンマー語' };
+
+async function openPip(n) {
+  if (!('documentPictureInPicture' in window)) {
+    alert('Document Picture-in-Picture は Chrome 116 以降が必要です。\nhttps://chrome.google.com でアップデートしてください。');
+    return;
+  }
+
+  // 既に開いていれば閉じる
+  if (pipWins[n] && !pipWins[n].closed) {
+    pipWins[n].close();
+    return;
+  }
+
+  const lang = floatState[n].lang;
+  try {
+    const pipWin = await window.documentPictureInPicture.requestWindow({ width: 380, height: 220 });
+    pipWins[n] = pipWin;
+
+    // スタイル注入
+    const st = pipWin.document.createElement('style');
+    st.textContent = `
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{
+        font-family:'Segoe UI','Noto Sans JP','Noto Sans Myanmar',sans-serif;
+        background:#1e1b4b;color:#e0e7ff;
+        display:flex;flex-direction:column;height:100dvh;overflow:hidden
+      }
+      .ph{background:#312e81;padding:7px 10px;display:flex;align-items:center;gap:6px;flex-shrink:0}
+      .ph-title{font-size:.8rem;font-weight:700;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .ph-btns{display:flex;gap:3px;flex-shrink:0}
+      .lb{background:rgba(255,255,255,.15);border:none;border-radius:4px;padding:3px 7px;
+          cursor:pointer;font-size:.76rem;color:#c7d2fe}
+      .lb.active{background:#4f46e5;color:white}
+      .lb:hover:not(.active){background:rgba(255,255,255,.28)}
+      .sz{background:rgba(255,255,255,.1);border:none;border-radius:4px;padding:2px 7px;
+          cursor:pointer;font-size:.76rem;color:#a5b4fc}
+      .sz:hover{background:rgba(255,255,255,.22)}
+      .ct{flex:1;overflow-y:auto;padding:13px;word-break:break-word;line-height:1.9}
+      .float-empty,.ct-empty{color:rgba(255,255,255,.35);font-style:italic;font-size:.84rem}
+      .float-speaking{color:#a5b4fc;font-style:italic;font-size:.84rem}
+      .float-row{font-size:1.05rem}
+      .mm,.float-row.mm{font-family:'Noto Sans Myanmar',sans-serif}
+    `;
+    pipWin.document.head.appendChild(st);
+
+    let pipFontSize = floatState[n].fontSize;
+    pipWin.document.body.innerHTML = `
+      <div class="ph">
+        <span class="ph-title" id="pt">📍 窓${n} · ${PIP_LANG_NAME[lang]}</span>
+        <div class="ph-btns">
+          <button class="lb ${lang==='ja'?'active':''}" data-l="ja">🇯🇵</button>
+          <button class="lb ${lang==='vi'?'active':''}" data-l="vi">🇻🇳</button>
+          <button class="lb ${lang==='my'?'active':''}" data-l="my">🇲🇲</button>
+          <button class="sz" data-sz="-1">A−</button>
+          <button class="sz" data-sz="+1">A+</button>
+        </div>
+      </div>
+      <div class="ct" id="pc" style="font-size:${pipFontSize}rem">
+        <div class="ct-empty">翻訳するとここに表示されます</div>
+      </div>
+    `;
+
+    // 言語切替ボタン（クロージャでメインウィンドウ関数を呼ぶ）
+    pipWin.document.querySelectorAll('.lb').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const nl = btn.dataset.l;
+        setFloatLang(n, nl);
+        pipWin.document.querySelectorAll('.lb').forEach(b => b.classList.toggle('active', b.dataset.l === nl));
+        pipWin.document.getElementById('pt').textContent = `📍 窓${n} · ${PIP_LANG_NAME[nl]}`;
+        refreshPipContent(n);
+      });
+    });
+
+    // フォントサイズ
+    pipWin.document.querySelectorAll('.sz').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pipFontSize = Math.min(2.4, Math.max(0.7, pipFontSize + parseInt(btn.dataset.sz) * 0.15));
+        pipWin.document.getElementById('pc').style.fontSize = pipFontSize + 'rem';
+      });
+    });
+
+    // PiP窓が閉じられたとき
+    pipWin.addEventListener('pagehide', () => {
+      delete pipWins[n];
+      const pipBtn = document.querySelector(`[data-pip="${n}"]`);
+      if (pipBtn) { pipBtn.textContent = '⤢ PiP'; pipBtn.classList.remove('active'); }
+    });
+
+    // ボタン状態更新
+    const pipBtn = document.querySelector(`[data-pip="${n}"]`);
+    if (pipBtn) { pipBtn.textContent = '✕ PiP'; pipBtn.classList.add('active'); }
+
+    refreshPipContent(n);
+
+  } catch (err) {
+    if (err.name !== 'NotAllowedError') {
+      console.error('PiP error:', err);
+      alert('PiP エラー: ' + err.message);
+    }
+  }
+}
+
+function refreshPipContent(n) {
+  const pipWin = pipWins[n];
+  if (!pipWin || pipWin.closed) return;
+  const src  = document.getElementById('floatContent' + n);
+  const dest = pipWin.document.getElementById('pc');
+  if (src && dest) dest.innerHTML = src.innerHTML;
+}
 
 /* ── 起動時セッション確認 ── */
 checkSession();
