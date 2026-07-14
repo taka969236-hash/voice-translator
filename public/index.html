@@ -1074,8 +1074,9 @@ function stopRec(lang) {
   document.getElementById(`mic-${lang}`).classList.remove('recording');
   document.getElementById(`mic-label-${lang}`).textContent = MIC_LABEL[lang];
   if (mode==='auto') {
-    const t = s.finalText.trim();
-    if (t && t!==s.lastTranslated) doTranslate(lang, t);
+    const full = s.finalText.trim();
+    const newText = full.slice(s.lastTranslated.length).trim();
+    if (newText) doTranslate(lang, newText);
   } else {
     if (s.finalText.trim()) document.getElementById(`hint-${lang}`).textContent='✏️ 修正後に翻訳ボタンを押してください';
   }
@@ -1136,8 +1137,10 @@ function scheduleTranslate(lang) {
   const s = st[lang];
   clearTimeout(s.debounceTimer);
   s.debounceTimer = setTimeout(()=>{
-    const t = s.finalText.trim();
-    if (t && t!==s.lastTranslated) doTranslate(lang, t);
+    const full = s.finalText.trim();
+    if (!full || full === s.lastTranslated) return;
+    const newText = full.slice(s.lastTranslated.length).trim();
+    if (newText) doTranslate(lang, newText);
   }, 150);
 }
 
@@ -1149,7 +1152,7 @@ function manualTranslate(lang) {
 async function doTranslate(lang, text) {
   if (!text || !sessionToken) return;
   const s = st[lang];
-  s.lastTranslated = text;
+  s.lastTranslated = s.finalText.trim() || text; // 送信済み位置を full text で管理
   if (s.controller) s.controller.abort();
   s.controller = new AbortController();
   document.getElementById(`spinner-${lang}`).classList.add('show');
