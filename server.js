@@ -162,8 +162,32 @@ app.get('/api/tts', async (req, res) => {
   }
 });
 
-/* ── 翻訳 API (Claude Haiku + コンテキスト) ── */
+/* ── 翻訳 API (Claude Sonnet + コンテキスト) ── */
 const LANG_NAMES = { ja: '日本語', vi: 'ベトナム語', my: 'ミャンマー語' };
+
+const TRANSLATION_SYSTEM = `You are a professional real-time interpreter specializing in Japanese, Vietnamese, and Burmese (Myanmar).
+
+CRITICAL — NATURALNESS RULES:
+- Produce translations that sound 100% natural to a native speaker in daily conversation.
+- NEVER translate word-for-word or mirror the source grammar.
+- Use common spoken expressions, not textbook or overly formal language unless the source is clearly formal.
+- Adapt politeness level to match the original (casual speech → casual translation).
+
+LANGUAGE-SPECIFIC GUIDELINES:
+Vietnamese (vi):
+- Use natural Southern Vietnamese phrasing as the default (phổ thông).
+- Prefer colloquial spoken forms over written/formal ones.
+- Use appropriate particles (ạ, nhé, đấy, vậy) that a native would naturally add.
+- Avoid literal calques from Japanese or English structure.
+
+Burmese/Myanmar (my):
+- Write in standard Myanmar script (Unicode). Never use Zawgyi encoding.
+- Use natural everyday Burmese, not overly Pali-heavy formal Burmese.
+- Match the register: casual workplace → conversational Burmese.
+- Use natural sentence-final particles (ပါ, ကွာ, နော် etc.) appropriate to the tone.
+
+OUTPUT FORMAT: Respond ONLY with a single JSON object, no markdown, no explanation:
+{"LANG_CODE":"translation","LANG_CODE":"translation"}`;
 
 app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   const { text, from } = req.body;
@@ -174,22 +198,18 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   const targets = ALL.filter(l => l !== from);
   const sess    = req.sess;
 
-  // 直近10件のコンテキスト
-  const ctxLines = sess.context.slice(-10).map(ex => {
-    const tLine = targets.map(t => `→${LANG_NAMES[t]}: ${ex[t] || '—'}`).join(' | ');
-    return `[${LANG_NAMES[ex.from]}] ${ex.text}  ${tLine}`;
-  }).join('\n');
+  // 直近5件のコンテキスト（多すぎると品質低下・翻訳ミスが混入する）
+  const ctxLines = sess.context.slice(-5).map(ex => {
+    const tLine = targets
+      .filter(t => ex[t])
+      .map(t => `  ${t}: ${ex[t]}`).join('\n');
+    return `${ex.from}: ${ex.text}\n${tLine}`;
+  }).join('\n---\n');
 
-  const system = [
-    'あなたは日本語・ベトナム語・ミャンマー語の専門通訳者です。',
-    'ビジネス・業務シーンを想定し、正確かつ自然な翻訳をしてください。',
-    `必ずJSON形式のみで返答してください: {"${targets[0]}":"翻訳文","${targets[1]}":"翻訳文"}`,
-    'JSON以外のテキストは一切出力しないでください。',
-  ].join('\n');
-
+  const langSpec = `Translate the following into ${targets.map(t => `${t} (${LANG_NAMES[t]})`).join(' and ')}.`;
   const userMsg = ctxLines
-    ? `【これまでの会話の流れ】\n${ctxLines}\n\n【今回の翻訳】\n${LANG_NAMES[from]}: ${text.trim()}`
-    : `${LANG_NAMES[from]}: ${text.trim()}`;
+    ? `${langSpec}\n\nConversation context:\n${ctxLines}\n\nNow translate:\n${from}: ${text.trim()}`
+    : `${langSpec}\n\n${from}: ${text.trim()}`;
 
   // SSE ストリーミングレスポンス
   res.setHeader('Content-Type', 'text/event-stream');
@@ -198,16 +218,16 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   const sse = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
 
   const MODELS = [
+    'claude-sonnet-4-6',
     'claude-haiku-4-5-20251001',
     'claude-3-5-haiku-20241022',
-    'claude-3-haiku-20240307',
   ];
 
   for (const model of MODELS) {
     try {
       let accumulated = '';
       const stream = anthropic.messages.stream({
-        model, max_tokens: 512, system,
+        model, max_tokens: 800, system: TRANSLATION_SYSTEM,
         messages: [{ role: 'user', content: userMsg }],
       });
 
