@@ -259,13 +259,15 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
     } catch(err) {
       const status = err.status || err.statusCode;
       console.error(`[translate] model=${model} err${status}: ${err.message?.slice(0,120)}`);
-      if ((status === 400 || status === 404) && !res.writableEnded) continue;
+      // ストリーミング前（テキスト未送信）なら次のモデルで再試行
+      const canRetry = accumulated === '' && !res.writableEnded;
+      if (canRetry) continue;
       break;
     }
   }
 
   if (!res.writableEnded) {
-    sse({ error: 'すべてのモデルで翻訳に失敗しました' });
+    sse({ error: '翻訳に失敗しました。しばらく待ってから再度お試しください。' });
     res.end();
   }
 });
