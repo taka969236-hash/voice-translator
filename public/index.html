@@ -348,6 +348,12 @@
     .section-tab.active { background: var(--primary); color: white; }
     .section-tab:not(.active):hover { background: #f1f5f9; color: var(--primary); }
 
+    /* ── Voice Section ──
+       bodyがdisplay:flex+align-items:centerのため、幅指定がないと内容量に応じて
+       伸縮してしまう（例: 文字起こしテキストが増えるほど横幅が広がっていく）。
+       #docSectionと同様に明示的にwidth:100%を指定して防ぐ */
+    #voiceSection { width: 100%; }
+
     /* ── Document Section ── */
     #docSection { display: none; width: 100%; max-width: 1100px; }
     .doc-card {
