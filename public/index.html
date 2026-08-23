@@ -1265,15 +1265,18 @@ function initRecog(lang) {
   };
 
   recog.onerror = e => {
-    if (e.error==='no-speech'||e.error==='aborted') return;
+    // 'network' は継続利用中に一時的に起きやすく自動復帰可能なため、停止せずonendに任せる
+    if (e.error==='no-speech'||e.error==='aborted'||e.error==='network') return;
     showErr(lang, RECOG_ERROR_MSG[e.error] || ('音声認識エラー: '+e.error));
     stopRec(lang);
   };
 
   recog.onend = () => {
     if (s.isRecording) {
-      if (isIOS) setTimeout(()=>{ if(s.isRecording&&s.recognition) s.recognition.start(); },200);
-      else recog.start();
+      try {
+        if (isIOS) setTimeout(()=>{ if(s.isRecording&&s.recognition) s.recognition.start(); },200);
+        else recog.start();
+      } catch {} // 再開直後の呼び出しで稀に例外になることがあるが、次のonendで再試行される
     }
   };
 
