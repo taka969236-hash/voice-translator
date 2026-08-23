@@ -1265,14 +1265,9 @@ function initRecog(lang) {
   };
 
   recog.onerror = e => {
-    if (e.error==='no-speech'||e.error==='aborted') return;
-    if (e.error==='network') {
-      // 継続利用中に一時的に起きやすく自動復帰可能。停止はせずonendに任せるが、
-      // 再接続中であることが分かるよう一時的にラベルを変える（onstartで元に戻す）
-      const label = document.getElementById(`mic-label-${lang}`);
-      if (label && s.isRecording) label.textContent = '🔄 再接続中…';
-      return;
-    }
+    // 'no-speech'（発話の合間の無音タイムアウト）・'network'（一時的な通信エラー）は
+    // 継続利用中に普通に起きるもので、止めずonend→再開に任せる
+    if (e.error==='no-speech'||e.error==='aborted'||e.error==='network') return;
     showErr(lang, RECOG_ERROR_MSG[e.error] || ('音声認識エラー: '+e.error));
     stopRec(lang);
   };
@@ -1283,6 +1278,11 @@ function initRecog(lang) {
 
   recog.onend = () => {
     if (s.isRecording) {
+      // 再開処理中であることが分かるよう表示（onstartで元のラベルに戻る）。
+      // no-speechタイムアウト後の再開でも数秒〜十数秒かかることがあるため、
+      // 原因を問わずonend→再開のたびに表示する
+      const label = document.getElementById(`mic-label-${lang}`);
+      if (label) label.textContent = '🔄 再接続中…';
       try {
         if (isIOS) setTimeout(()=>{ if(s.isRecording&&s.recognition) s.recognition.start(); },200);
         else recog.start();
