@@ -1257,7 +1257,11 @@ function initRecog(lang) {
       if (e.results[i].isFinal) {
         s.finalText += t;
         if (mode==='auto') scheduleTranslate(lang);
-        else document.getElementById(`edit-${lang}`).value = s.finalText;
+        else {
+          const editEl = document.getElementById(`edit-${lang}`);
+          editEl.value = s.finalText;
+          editEl.scrollTop = editEl.scrollHeight; // 手動モードも常に最新行が見えるよう追尾
+        }
       } else { interim += t; }
     }
     if (mode==='auto') renderTranscript(lang, s.finalText, interim);
@@ -1300,6 +1304,7 @@ function renderTranscript(lang, final, interim) {
   if (!final&&!interim) { el.innerHTML=`<span class="ph">${PH_REC[lang]}</span>`; return; }
   if (final)  { const sp=document.createElement('span'); sp.textContent=final; el.appendChild(sp); }
   if (interim){ const sp=document.createElement('span'); sp.className='interim'; sp.textContent=' '+interim; el.appendChild(sp); }
+  el.scrollTop = el.scrollHeight; // 常に最新の発話が見えるよう自動で下端に追尾
 }
 
 /* ═══════════════════════════════════════
