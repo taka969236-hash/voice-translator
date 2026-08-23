@@ -112,12 +112,10 @@
     .mode-btn.active { background: var(--primary); color: white; }
     .mode-hint { font-size: 0.76rem; color: var(--muted); }
 
-    /* ── Panel Grid ── */
+    /* ── Panel Grid (常に選択中の1言語のみ表示) ── */
     .panel-grid {
-      display: grid; grid-template-columns: repeat(3,1fr);
-      gap: 12px; width: 100%; max-width: 1100px; margin-bottom: 12px;
+      width: 100%; max-width: 1100px; margin-bottom: 12px;
     }
-    @media (max-width: 700px) { .panel-grid { grid-template-columns: 1fr; } }
 
     /* ── Language Panel ── */
     .lang-panel {
@@ -129,6 +127,7 @@
     .lang-panel[data-lang="ja"] { border-top-color: #4338ca; }
     .lang-panel[data-lang="vi"] { border-top-color: #dc2626; }
     .lang-panel[data-lang="my"] { border-top-color: #b45309; }
+    #panel-vi, #panel-my { display: none; } /* 初期表示は日本語タブのみ */
 
     /* ── Panel Head ── */
     .panel-head { display: flex; align-items: center; gap: 8px; }
@@ -559,6 +558,13 @@
     <button id="modeManual" class="mode-btn" onclick="setMode('manual')">手動</button>
   </div>
   <span class="mode-hint">自動: 話すと即翻訳 &nbsp;·&nbsp; 手動: 確認後に翻訳</span>
+</div>
+
+<!-- ── 言語選択タブ（常に1言語のみ表示） ── -->
+<div class="section-tabs">
+  <button class="section-tab active" id="langTabJa" onclick="switchLangPanel('ja')">🇯🇵 日本語</button>
+  <button class="section-tab" id="langTabVi" onclick="switchLangPanel('vi')">🇻🇳 Tiếng Việt</button>
+  <button class="section-tab" id="langTabMy" onclick="switchLangPanel('my')">🇲🇲 မြန်မာ</button>
 </div>
 
 <!-- ── 3-Language Panel Grid ── -->
@@ -1919,6 +1925,25 @@ function switchSection(name) {
   document.getElementById('docSection').style.display   = isVoice ? 'none' : 'block';
   document.getElementById('tabVoice').classList.toggle('active', isVoice);
   document.getElementById('tabDoc').classList.toggle('active', !isVoice);
+}
+
+/* ── 言語パネル切替（常に選択中の1言語のみ表示） ── */
+function switchLangPanel(lang) {
+  // 非表示になると録音停止ボタンが押せなくなるため、切替前に他言語の録音は止める
+  ALL_LANGS.forEach(l => { if (st[l].isRecording) stopRec(l); });
+  if (myIsRecording) {
+    myIsRecording = false; myChunks = [];
+    if (myRecorder && myRecorder.state !== 'inactive') myRecorder.stop();
+    document.getElementById('mic-my').classList.remove('recording');
+    document.getElementById('panel-my').classList.remove('active');
+    document.getElementById('mic-label-my').textContent = 'ပြောဆိုမည်';
+  }
+  ALL_LANGS.forEach(l => {
+    document.getElementById(`panel-${l}`).style.display = (l === lang) ? 'flex' : 'none';
+  });
+  document.getElementById('langTabJa').classList.toggle('active', lang === 'ja');
+  document.getElementById('langTabVi').classList.toggle('active', lang === 'vi');
+  document.getElementById('langTabMy').classList.toggle('active', lang === 'my');
 }
 
 /* ── Document Translation ── */
