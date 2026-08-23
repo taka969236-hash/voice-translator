@@ -1335,12 +1335,21 @@ function renderResultHist(lang, tgt) {
   });
 }
 
+function resetPending(lang) {
+  TARGETS[lang].forEach(tgt => {
+    const el = document.getElementById(`result-${lang}-${tgt}`);
+    el.className = 'result-text ph' + (tgt==='my' ? ' mm' : '');
+    el.textContent = '—';
+  });
+}
+
 async function doTranslate(lang, text) {
   if (!text || !sessionToken) return;
   const s = st[lang];
   s.lastTranslated = s.finalText.trim() || text; // 送信済み位置を full text で管理
   if (s.controller) s.controller.abort();
-  s.controller = new AbortController();
+  const myController = new AbortController();
+  s.controller = myController;
   document.getElementById(`spinner-${lang}`).classList.add('show');
   const spinnerLabel = document.getElementById(`spinner-label-${lang}`);
   spinnerLabel.textContent = '翻訳中…';
@@ -1359,7 +1368,7 @@ async function doTranslate(lang, text) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken },
       body: JSON.stringify({ text, from: lang }),
-      signal: s.controller.signal,
+      signal: myController.signal,
     });
     if (resp.status === 401) { handleAuthError(); return; }
 
@@ -1368,6 +1377,7 @@ async function doTranslate(lang, text) {
     if (!ct.includes('text/event-stream')) {
       const data = await resp.json().catch(()=>({}));
       showErr(lang, data.error || `エラー (${resp.status})`);
+      resetPending(lang);
       return;
     }
 
@@ -1424,13 +1434,19 @@ async function doTranslate(lang, text) {
     }
 
   } catch(err) {
-    if (err.name==='AbortError') return;
+    if (err.name==='AbortError') return; // より新しいリクエストに引き継がれたので何もしない
     showErr(lang, '接続エラー: '+err.message);
+    resetPending(lang);
   } finally {
     clearTimeout(wakeupTimer);
-    s.controller = null;
-    document.getElementById(`spinner-${lang}`).classList.remove('show');
-    document.querySelectorAll('.typing-cur').forEach(c => c.remove());
+    // 自分より新しいリクエストが既に始まっている場合はそちらの表示を壊さないよう何もしない
+    if (s.controller === myController) {
+      s.controller = null;
+      document.getElementById(`spinner-${lang}`).classList.remove('show');
+      TARGETS[lang].forEach(tgt => {
+        document.getElementById(`result-${lang}-${tgt}`).querySelectorAll('.typing-cur').forEach(c => c.remove());
+      });
+    }
   }
 }
 
