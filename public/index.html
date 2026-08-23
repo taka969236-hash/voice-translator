@@ -1813,7 +1813,7 @@ checkSession();
 function switchSection(name) {
   const isVoice = name === 'voice';
   document.getElementById('voiceSection').style.display = isVoice ? '' : 'none';
-  document.getElementById('docSection').style.display   = isVoice ? 'none' : '';
+  document.getElementById('docSection').style.display   = isVoice ? 'none' : 'block';
   document.getElementById('tabVoice').classList.toggle('active', isVoice);
   document.getElementById('tabDoc').classList.toggle('active', !isVoice);
 }
