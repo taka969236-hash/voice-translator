@@ -1265,10 +1265,20 @@ function initRecog(lang) {
   };
 
   recog.onerror = e => {
-    // 'network' は継続利用中に一時的に起きやすく自動復帰可能なため、停止せずonendに任せる
-    if (e.error==='no-speech'||e.error==='aborted'||e.error==='network') return;
+    if (e.error==='no-speech'||e.error==='aborted') return;
+    if (e.error==='network') {
+      // 継続利用中に一時的に起きやすく自動復帰可能。停止はせずonendに任せるが、
+      // 再接続中であることが分かるよう一時的にラベルを変える（onstartで元に戻す）
+      const label = document.getElementById(`mic-label-${lang}`);
+      if (label && s.isRecording) label.textContent = '🔄 再接続中…';
+      return;
+    }
     showErr(lang, RECOG_ERROR_MSG[e.error] || ('音声認識エラー: '+e.error));
     stopRec(lang);
+  };
+
+  recog.onstart = () => {
+    if (s.isRecording) document.getElementById(`mic-label-${lang}`).textContent = STOP_LABEL[lang];
   };
 
   recog.onend = () => {
