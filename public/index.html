@@ -1094,7 +1094,9 @@ function startMyRec() {
       if (mode === 'auto') {
         document.getElementById('auto-my').style.display = '';
         document.getElementById('manual-my').style.display = 'none';
-        document.getElementById('transcript-my').innerHTML = `<span class="ph">${PH_REC['my']}</span>`;
+        const tEl = document.getElementById('transcript-my');
+        tEl.innerHTML = `<span class="ph">${PH_REC['my']}</span>`;
+        tEl.scrollTop = tEl.scrollHeight;
       }
     })
     .catch(err => {
@@ -1117,7 +1119,9 @@ async function sendMyAudio() {
     if (mode === 'auto') {
       document.getElementById('auto-my').style.display = '';
       document.getElementById('manual-my').style.display = 'none';
-      document.getElementById('transcript-my').textContent = text;
+      const tEl = document.getElementById('transcript-my');
+      tEl.textContent = text;
+      tEl.scrollTop = tEl.scrollHeight;
       doTranslate('my', text);
     } else {
       document.getElementById('auto-my').style.display = 'none';
@@ -1127,7 +1131,9 @@ async function sendMyAudio() {
     }
   } catch(err) {
     showErr('my', '認識エラー: ' + err.message);
-    document.getElementById('transcript-my').innerHTML = `<span class="ph">${PH_INPUT['my']}</span>`;
+    const tEl = document.getElementById('transcript-my');
+    tEl.innerHTML = `<span class="ph">${PH_INPUT['my']}</span>`;
+    tEl.scrollTop = tEl.scrollHeight;
   } finally {
     document.getElementById('spinner-my').classList.remove('show');
   }
@@ -1137,8 +1143,9 @@ let _whisperPipe = null;
 
 async function transcribeMy(blob) {
   if (!_whisperPipe) {
-    document.getElementById('transcript-my').innerHTML =
-      '<span class="ph">📥 初回のみモデル読込中（約150MB）…</span>';
+    const loadEl = document.getElementById('transcript-my');
+    loadEl.innerHTML = '<span class="ph">📥 初回のみモデル読込中（約150MB）…</span>';
+    loadEl.scrollTop = loadEl.scrollHeight;
     const { pipeline, env } = await import(
       'https://cdn.jsdelivr.net/npm/@xenova/transformers@2'
     );
@@ -1149,15 +1156,18 @@ async function transcribeMy(blob) {
       {
         progress_callback: ({ status, progress, file }) => {
           if (status === 'progress' && progress != null) {
-            document.getElementById('transcript-my').innerHTML =
-              `<span class="ph">📥 ${(file||'').split('/').pop()} ${Math.round(progress)}%…</span>`;
+            const pEl = document.getElementById('transcript-my');
+            pEl.innerHTML = `<span class="ph">📥 ${(file||'').split('/').pop()} ${Math.round(progress)}%…</span>`;
+            pEl.scrollTop = pEl.scrollHeight;
           }
         }
       }
     );
   }
 
-  document.getElementById('transcript-my').innerHTML = '<span class="ph">🤖 認識中…</span>';
+  const busyEl = document.getElementById('transcript-my');
+  busyEl.innerHTML = '<span class="ph">🤖 認識中…</span>';
+  busyEl.scrollTop = busyEl.scrollHeight;
 
   const ab  = await blob.arrayBuffer();
   const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
