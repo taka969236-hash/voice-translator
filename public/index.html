@@ -1235,6 +1235,12 @@ function stopRec(lang) {
   }
 }
 
+const RECOG_ERROR_MSG = {
+  'not-allowed': 'マイクへのアクセスが許可されていません。ブラウザのアドレスバー付近のマイクアイコン（または鍵マーク）からサイトの設定を開き、マイクを「許可」に変更してページを再読み込みしてください。',
+  'service-not-allowed': 'マイクへのアクセスが許可されていません。ブラウザのアドレスバー付近のマイクアイコン（または鍵マーク）からサイトの設定を開き、マイクを「許可」に変更してページを再読み込みしてください。',
+  'audio-capture': 'マイクが見つかりません。マイクが接続されているか、他のアプリで使用中でないか確認してください。',
+};
+
 function initRecog(lang) {
   if (!SpeechRecognition) { showErr(lang,'音声認識非対応: Chrome または Edge をご利用ください'); return false; }
   const s = st[lang];
@@ -1260,7 +1266,7 @@ function initRecog(lang) {
 
   recog.onerror = e => {
     if (e.error==='no-speech'||e.error==='aborted') return;
-    showErr(lang, '音声認識エラー: '+e.error);
+    showErr(lang, RECOG_ERROR_MSG[e.error] || ('音声認識エラー: '+e.error));
     stopRec(lang);
   };
 
