@@ -593,7 +593,7 @@
     </button>
 
     <hr class="panel-divider" />
-    <div class="panel-spinner" id="spinner-ja"><span class="spinner"></span> 翻訳中…</div>
+    <div class="panel-spinner" id="spinner-ja"><span class="spinner"></span> <span id="spinner-label-ja">翻訳中…</span></div>
 
     <div class="result-row">
       <div class="result-head">
@@ -649,7 +649,7 @@
     </button>
 
     <hr class="panel-divider" />
-    <div class="panel-spinner" id="spinner-vi"><span class="spinner"></span> 翻訳中…</div>
+    <div class="panel-spinner" id="spinner-vi"><span class="spinner"></span> <span id="spinner-label-vi">翻訳中…</span></div>
 
     <div class="result-row">
       <div class="result-head">
@@ -706,7 +706,7 @@
     <div style="font-size:0.7rem;color:var(--muted);text-align:center;">🤖 Whisper (ブラウザ内処理・初回150MB)</div>
 
     <hr class="panel-divider" />
-    <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> 翻訳中…</div>
+    <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> <span id="spinner-label-my">翻訳中…</span></div>
 
     <div class="result-row">
       <div class="result-head">
@@ -845,6 +845,11 @@ function hidePinScreen() {
   loadDictionary();
 }
 
+/* Render無料枠はスリープ後の初回アクセスで起動に時間がかかるため、
+   応答が遅い場合はその旨を表示する（WAKEUP_DELAY経過後にヒントを出す） */
+const WAKEUP_DELAY = 5000;
+const WAKEUP_MSG = '🌙 サーバー起動中…(最大30秒)';
+
 async function submitPin() {
   const pin = document.getElementById('pinInput').value.trim();
   const errEl = document.getElementById('pinError');
@@ -852,6 +857,7 @@ async function submitPin() {
   if (pin.length !== 8) { errEl.textContent = '8桁のPINを入力してください'; return; }
   const btn = document.getElementById('pinBtn');
   btn.disabled = true; btn.textContent = '認証中…';
+  const wakeupTimer = setTimeout(() => { btn.textContent = WAKEUP_MSG; }, WAKEUP_DELAY);
   try {
     const r = await fetch('/api/auth', {
       method: 'POST',
@@ -866,6 +872,7 @@ async function submitPin() {
   } catch(err) {
     errEl.textContent = '接続エラー: ' + err.message;
   } finally {
+    clearTimeout(wakeupTimer);
     btn.disabled = false; btn.textContent = 'ログイン';
   }
 }
@@ -1329,6 +1336,9 @@ async function doTranslate(lang, text) {
   if (s.controller) s.controller.abort();
   s.controller = new AbortController();
   document.getElementById(`spinner-${lang}`).classList.add('show');
+  const spinnerLabel = document.getElementById(`spinner-label-${lang}`);
+  spinnerLabel.textContent = '翻訳中…';
+  const wakeupTimer = setTimeout(() => { spinnerLabel.textContent = WAKEUP_MSG; }, WAKEUP_DELAY);
 
   // 翻訳先エリアにカーソルを表示（更新前の訳文は履歴へ退避）
   TARGETS[lang].forEach(tgt => {
@@ -1411,6 +1421,7 @@ async function doTranslate(lang, text) {
     if (err.name==='AbortError') return;
     showErr(lang, '接続エラー: '+err.message);
   } finally {
+    clearTimeout(wakeupTimer);
     s.controller = null;
     document.getElementById(`spinner-${lang}`).classList.remove('show');
     document.querySelectorAll('.typing-cur').forEach(c => c.remove());
