@@ -1546,7 +1546,8 @@ function renderHistory(entries) {
     list.innerHTML = '<div class="hist-empty">まだ翻訳履歴はありません</div>';
     return;
   }
-  list.innerHTML = entries.slice().reverse().map(e => {
+  // 古い→新しい の時系列順（上から下に自然に流れる並び）で表示し、最新行まで自動スクロール
+  list.innerHTML = entries.map(e => {
     const flag = LANG_FLAGS[e.from] || '';
     const time = new Date(e.timestamp).toLocaleTimeString('ja-JP');
     const tgts = ['ja','vi','my']
@@ -1558,6 +1559,7 @@ function renderHistory(entries) {
       ${tgts}
     </div>`;
   }).join('');
+  list.scrollTop = list.scrollHeight;
 }
 
 async function resetContext() {
