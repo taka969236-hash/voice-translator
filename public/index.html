@@ -214,6 +214,9 @@
     .result-text.ph { color: #d1d5db !important; font-style: italic; font-size: 0.78rem; font-family: 'Noto Sans JP', sans-serif !important; }
     .result-text.mm { font-family: 'Noto Sans Myanmar', sans-serif; }
     .typing-cur { display: inline-block; animation: blink 0.7s ease-in-out infinite; }
+    .result-hist { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+    .result-hist-row { font-size: 0.74rem; line-height: 1.5; color: var(--muted); word-break: break-word; }
+    .result-hist-row.mm { font-family: 'Noto Sans Myanmar', sans-serif; }
 
     /* ── Error ── */
     .panel-error { display: none; background: #fef2f2; border: 1.5px solid #fecaca; color: #dc2626; border-radius: 8px; padding: 7px 10px; font-size: 0.78rem; }
@@ -601,6 +604,7 @@
         </button>
       </div>
       <div id="result-ja-vi" class="result-text ph">Bản dịch sẽ xuất hiện ở đây</div>
+      <div id="hist-ja-vi" class="result-hist"></div>
     </div>
     <div class="result-row">
       <div class="result-head">
@@ -611,6 +615,7 @@
         </button>
       </div>
       <div id="result-ja-my" class="result-text ph mm">ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်</div>
+      <div id="hist-ja-my" class="result-hist"></div>
     </div>
     <div id="error-ja" class="panel-error"></div>
   </div>
@@ -655,6 +660,7 @@
         </button>
       </div>
       <div id="result-vi-ja" class="result-text ph">翻訳がここに表示されます</div>
+      <div id="hist-vi-ja" class="result-hist"></div>
     </div>
     <div class="result-row">
       <div class="result-head">
@@ -665,6 +671,7 @@
         </button>
       </div>
       <div id="result-vi-my" class="result-text ph mm">ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်</div>
+      <div id="hist-vi-my" class="result-hist"></div>
     </div>
     <div id="error-vi" class="panel-error"></div>
   </div>
@@ -710,6 +717,7 @@
         </button>
       </div>
       <div id="result-my-ja" class="result-text ph">翻訳がここに表示されます</div>
+      <div id="hist-my-ja" class="result-hist"></div>
     </div>
     <div class="result-row">
       <div class="result-head">
@@ -720,6 +728,7 @@
         </button>
       </div>
       <div id="result-my-vi" class="result-text ph">Bản dịch sẽ xuất hiện ở đây</div>
+      <div id="hist-my-vi" class="result-hist"></div>
     </div>
     <div id="error-my" class="panel-error"></div>
   </div>
@@ -1286,6 +1295,33 @@ function manualTranslate(lang) {
   if (text) doTranslate(lang, text);
 }
 
+/* ── 翻訳結果の履歴（直前の訳文が消えないよう小さく残す） ── */
+const HIST_MAX = 3;
+const resultHist = {};
+
+function pushResultHist(lang, tgt, text) {
+  if (!text) return;
+  const key = `${lang}-${tgt}`;
+  const arr = resultHist[key] || (resultHist[key] = []);
+  arr.unshift(text);
+  if (arr.length > HIST_MAX) arr.length = HIST_MAX;
+  renderResultHist(lang, tgt);
+}
+
+function renderResultHist(lang, tgt) {
+  const el = document.getElementById(`hist-${lang}-${tgt}`);
+  if (!el) return;
+  const arr = resultHist[`${lang}-${tgt}`] || [];
+  el.innerHTML = '';
+  arr.forEach((text, i) => {
+    const row = document.createElement('div');
+    row.className = 'result-hist-row' + (tgt === 'my' ? ' mm' : '');
+    row.style.opacity = (1 - i * 0.28).toFixed(2);
+    row.textContent = text;
+    el.appendChild(row);
+  });
+}
+
 async function doTranslate(lang, text) {
   if (!text || !sessionToken) return;
   const s = st[lang];
@@ -1294,9 +1330,10 @@ async function doTranslate(lang, text) {
   s.controller = new AbortController();
   document.getElementById(`spinner-${lang}`).classList.add('show');
 
-  // 翻訳先エリアにカーソルを表示
+  // 翻訳先エリアにカーソルを表示（更新前の訳文は履歴へ退避）
   TARGETS[lang].forEach(tgt => {
     const el = document.getElementById(`result-${lang}-${tgt}`);
+    if (!el.classList.contains('ph')) pushResultHist(lang, tgt, el.textContent.trim());
     el.className = 'result-text' + (tgt==='my' ? ' mm' : '');
     el.innerHTML = '<span class="typing-cur">▋</span>';
   });
