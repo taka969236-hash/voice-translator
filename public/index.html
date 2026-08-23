@@ -1264,6 +1264,9 @@ const RECOG_ERROR_MSG = {
 
 /* 接続状態ドット: 🔵 通常 → 🟡 再接続中 → 🔴 再接続が長引いている(目安8秒) */
 const RECONNECT_ESCALATE_MS = 8000;
+/* ウォッチドッグ: 発話中でもonresultが一定時間来ない「無反応フリーズ」を検知して強制再起動 */
+const WATCHDOG_CHECK_MS = 2000;
+const WATCHDOG_TIMEOUT_MS = 10000;
 
 function setRecDot(lang, state) {
   const dot = document.getElementById(`rec-dot-${lang}`);
@@ -1282,7 +1285,20 @@ function initRecog(lang) {
   recog.interimResults = true;
   recog.maxAlternatives = 1;
 
+  let lastActivity = Date.now();
+  const watchdog = setInterval(() => {
+    if (!s.isRecording || s.recognition !== recog) { clearInterval(watchdog); return; }
+    if (Date.now() - lastActivity > WATCHDOG_TIMEOUT_MS) {
+      // onerror/onendが一切発火しないまま無反応になっているケース。
+      // stop()は保留中の結果を待とうとして固まる恐れがあるためabort()で強制終了し、
+      // 既存のonend→再開シーケンスに乗せる
+      lastActivity = Date.now();
+      try { recog.abort(); } catch {}
+    }
+  }, WATCHDOG_CHECK_MS);
+
   recog.onresult = e => {
+    lastActivity = Date.now();
     let interim = '';
     for (let i=e.resultIndex; i<e.results.length; i++) {
       const t = e.results[i][0].transcript;
@@ -1309,6 +1325,7 @@ function initRecog(lang) {
   };
 
   recog.onstart = () => {
+    lastActivity = Date.now();
     clearTimeout(s.escalateTimer);
     setRecDot(lang, 'normal');
     if (s.isRecording) document.getElementById(`mic-label-${lang}`).textContent = STOP_LABEL[lang];
