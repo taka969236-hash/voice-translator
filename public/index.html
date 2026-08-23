@@ -136,9 +136,11 @@
     .panel-lang { font-weight: 700; font-size: 0.88rem; color: var(--text); }
     .panel-sub  { font-size: 0.68rem; color: var(--muted); }
     .rec-dot {
-      width: 9px; height: 9px; border-radius: 50%; background: var(--danger); flex-shrink: 0;
+      width: 9px; height: 9px; border-radius: 50%; background: #3b82f6; flex-shrink: 0;
       display: none; animation: blink 1s ease-in-out infinite;
     }
+    .rec-dot.reconnecting { background: #eab308; }
+    .rec-dot.stuck { background: var(--danger); }
     .lang-panel.active .rec-dot { display: block; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
@@ -578,7 +580,7 @@
         <span class="panel-lang">日本語</span>
         <span class="panel-sub">Japanese</span>
       </div>
-      <span class="rec-dot"></span>
+      <span class="rec-dot" id="rec-dot-ja"></span>
     </div>
 
     <div id="auto-ja">
@@ -634,7 +636,7 @@
         <span class="panel-lang">Tiếng Việt</span>
         <span class="panel-sub">ベトナム語</span>
       </div>
-      <span class="rec-dot"></span>
+      <span class="rec-dot" id="rec-dot-vi"></span>
     </div>
 
     <div id="auto-vi">
@@ -690,7 +692,7 @@
         <span class="panel-lang" style="font-family:'Noto Sans Myanmar',sans-serif;">မြန်မာဘာသာ</span>
         <span class="panel-sub">ミャンマー語</span>
       </div>
-      <span class="rec-dot"></span>
+      <span class="rec-dot" id="rec-dot-my"></span>
     </div>
 
     <div id="auto-my">
@@ -1029,7 +1031,7 @@ const PH_REC = {
    State
 ═══════════════════════════════════════ */
 const st = {};
-ALL_LANGS.forEach(l => { st[l] = { recognition:null, isRecording:false, finalText:'', lastTranslated:'', debounceTimer:null, controller:null }; });
+ALL_LANGS.forEach(l => { st[l] = { recognition:null, isRecording:false, finalText:'', lastTranslated:'', debounceTimer:null, controller:null, escalateTimer:null }; });
 let mode = 'auto';
 let currentAudio = null;
 
@@ -1229,6 +1231,7 @@ function startRec(lang) {
   if (!initRecog(lang)) return;
   s.recognition.start();
   s.isRecording = true;
+  setRecDot(lang, 'normal');
   document.getElementById(`panel-${lang}`).classList.add('active');
   document.getElementById(`mic-${lang}`).classList.add('recording');
   document.getElementById(`mic-label-${lang}`).textContent = STOP_LABEL[lang];
@@ -1238,6 +1241,8 @@ function stopRec(lang) {
   const s = st[lang];
   s.isRecording = false;
   clearTimeout(s.debounceTimer);
+  clearTimeout(s.escalateTimer);
+  setRecDot(lang, 'normal');
   if (s.recognition) { s.recognition.stop(); s.recognition=null; }
   document.getElementById(`panel-${lang}`).classList.remove('active');
   document.getElementById(`mic-${lang}`).classList.remove('recording');
@@ -1256,6 +1261,17 @@ const RECOG_ERROR_MSG = {
   'service-not-allowed': 'マイクへのアクセスが許可されていません。ブラウザのアドレスバー付近のマイクアイコン（または鍵マーク）からサイトの設定を開き、マイクを「許可」に変更してページを再読み込みしてください。',
   'audio-capture': 'マイクが見つかりません。マイクが接続されているか、他のアプリで使用中でないか確認してください。',
 };
+
+/* 接続状態ドット: 🔵 通常 → 🟡 再接続中 → 🔴 再接続が長引いている(目安8秒) */
+const RECONNECT_ESCALATE_MS = 8000;
+
+function setRecDot(lang, state) {
+  const dot = document.getElementById(`rec-dot-${lang}`);
+  if (!dot) return;
+  dot.classList.remove('reconnecting', 'stuck');
+  if (state === 'reconnecting') dot.classList.add('reconnecting');
+  else if (state === 'stuck') dot.classList.add('stuck');
+}
 
 function initRecog(lang) {
   if (!SpeechRecognition) { showErr(lang,'音声認識非対応: Chrome または Edge をご利用ください'); return false; }
@@ -1293,6 +1309,8 @@ function initRecog(lang) {
   };
 
   recog.onstart = () => {
+    clearTimeout(s.escalateTimer);
+    setRecDot(lang, 'normal');
     if (s.isRecording) document.getElementById(`mic-label-${lang}`).textContent = STOP_LABEL[lang];
   };
 
@@ -1303,6 +1321,9 @@ function initRecog(lang) {
       // 原因を問わずonend→再開のたびに表示する
       const label = document.getElementById(`mic-label-${lang}`);
       if (label) label.textContent = '🔄 再接続中…';
+      setRecDot(lang, 'reconnecting');
+      clearTimeout(s.escalateTimer);
+      s.escalateTimer = setTimeout(() => setRecDot(lang, 'stuck'), RECONNECT_ESCALATE_MS);
       try {
         if (isIOS) setTimeout(()=>{ if(s.isRecording&&s.recognition) s.recognition.start(); },200);
         else recog.start();
