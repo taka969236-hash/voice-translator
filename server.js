@@ -285,8 +285,8 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   ];
 
   for (const model of MODELS) {
+    let accumulated = '';
     try {
-      let accumulated = '';
       const stream = anthropic.messages.stream({
         model, max_tokens: 800, system: TRANSLATION_SYSTEM,
         messages: [{ role: 'user', content: userMsg }],
@@ -305,6 +305,13 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
       catch {
         const m = raw.match(/\{[\s\S]*?\}/);
         if (m) { try { translations = JSON.parse(m[0]); } catch {} }
+      }
+
+      // モデルが指定フォーマットを守らずJSONを返さなかった場合は失敗扱いにして次のモデルへ
+      const hasAnyTranslation = targets.some(t => translations[t]);
+      if (!hasAnyTranslation) {
+        console.error(`[translate] model=${model} unparseable output: ${raw.slice(0, 200)}`);
+        continue;
       }
 
       const entry = { from, text: text.trim(), timestamp: new Date().toISOString(), ...translations };
