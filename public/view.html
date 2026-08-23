@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>リアルタイム翻訳 · Live Translation</title>
+<style>
+  :root {
+    --primary: #4f46e5; --bg: #f1f5f9; --surface: #ffffff;
+    --text: #1e293b; --muted: #64748b; --border: #e2e8f0;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; }
+  html { height: 100%; }
+  body {
+    margin: 0; font-family: 'Noto Sans JP', 'Noto Sans', sans-serif;
+    background: var(--bg); color: var(--text);
+    min-height: 100%; display: flex; flex-direction: column; align-items: center;
+    padding: max(16px, calc(12px + var(--safe-top))) 16px calc(16px + var(--safe-bottom));
+  }
+  .wrap { width: 100%; max-width: 640px; display: flex; flex-direction: column; gap: 14px; }
+
+  .lang-picker { display: flex; gap: 8px; }
+  .lang-btn {
+    flex: 1; padding: 12px 8px; border-radius: 12px; border: 1.5px solid var(--border);
+    background: var(--surface); font-size: 0.95rem; font-weight: 700; cursor: pointer;
+    transition: all .15s; color: var(--text);
+  }
+  .lang-btn.active { border-color: var(--primary); background: #eef2ff; color: var(--primary); }
+
+  .status-bar {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    font-size: 0.78rem; color: var(--muted);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; flex-shrink: 0; }
+  .dot.live { background: #16a34a; animation: pulse 1.4s ease-in-out infinite; }
+  .dot.down { background: #ef4444; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  .caption-card {
+    background: var(--surface); border-radius: 20px; padding: 28px 22px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.08); min-height: 160px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+  }
+  .caption-text {
+    font-size: 1.7rem; font-weight: 700; line-height: 1.5; word-break: break-word;
+    white-space: pre-wrap;
+  }
+  .caption-text.mm { font-family: 'Padauk', 'Noto Sans Myanmar', sans-serif; }
+  .caption-empty { color: var(--muted); font-size: 1rem; font-weight: 500; }
+
+  .speak-toggle {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 12px; background: var(--surface); border: 1.5px solid var(--border);
+    border-radius: 12px; font-size: 0.92rem; font-weight: 600; cursor: pointer;
+    color: var(--text); transition: all .15s;
+  }
+  .speak-toggle.on { border-color: var(--primary); background: #eef2ff; color: var(--primary); }
+
+  .history { display: flex; flex-direction: column; gap: 8px; }
+  .hist-row {
+    background: var(--surface); border-radius: 12px; padding: 10px 14px;
+    font-size: 0.85rem; color: var(--muted); opacity: 0.85;
+  }
+  .hist-row .hist-text { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="lang-picker" id="langPicker"></div>
+  <div class="status-bar"><span class="dot" id="statusDot"></span><span id="statusText"></span></div>
+  <div class="caption-card"><div class="caption-text caption-empty" id="captionText"></div></div>
+  <button class="speak-toggle" id="speakToggle" onclick="toggleAutoSpeak()"></button>
+  <div class="history" id="history"></div>
+</div>
+
+<script>
+const LANGS = {
+  ja: { flag:'🇯🇵', label:'日本語',      ttsCode:'ja-JP', serverTTS:false },
+  vi: { flag:'🇻🇳', label:'Tiếng Việt',  ttsCode:'vi-VN', serverTTS:false },
+  my: { flag:'🇲🇲', label:'မြန်မာ',      ttsCode:'my',    serverTTS:true  },
+};
+
+const UI = {
+  ja: { waiting:'接続中…', live:'ライブ中', down:'接続待ち…', empty:'翻訳を待っています…', speakOn:'🔊 自動読み上げ ON', speakOff:'🔇 自動読み上げ OFF', expired:'このリンクは無効です' },
+  vi: { waiting:'Đang kết nối…', live:'Trực tiếp', down:'Đang chờ kết nối…', empty:'Đang chờ bản dịch…', speakOn:'🔊 Tự động đọc: BẬT', speakOff:'🔇 Tự động đọc: TẮT', expired:'Liên kết này không hợp lệ' },
+  my: { waiting:'ချိတ်ဆက်နေသည်…', live:'တိုက်ရိုက်', down:'ချိတ်ဆက်ရန် စောင့်နေသည်…', empty:'ဘာသာပြန်ချက် စောင့်နေသည်…', speakOn:'🔊 အလိုအလျောက်ဖတ်ပြ: ဖွင့်', speakOff:'🔇 အလိုအလျောက်ဖတ်ပြ: ပိတ်', expired:'ဤလင့်ခ်သည် သက်တမ်းကုန်သွားပါပြီ' },
+};
+
+const params = new URLSearchParams(location.search);
+const token  = params.get('t');
+let lang     = localStorage.getItem('viewLang') || 'ja';
+let autoSpeak = localStorage.getItem('viewAutoSpeak') === '1';
+let currentAudio = null;
+const recent = [];
+
+function t(key) { return UI[lang][key]; }
+
+function renderLangPicker() {
+  const el = document.getElementById('langPicker');
+  el.innerHTML = '';
+  Object.entries(LANGS).forEach(([code, cfg]) => {
+    const btn = document.createElement('button');
+    btn.className = 'lang-btn' + (code === lang ? ' active' : '');
+    btn.textContent = `${cfg.flag} ${cfg.label}`;
+    btn.onclick = () => { lang = code; localStorage.setItem('viewLang', lang); renderAll(); };
+    el.appendChild(btn);
+  });
+}
+
+function renderStatus(state) {
+  const dot  = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  dot.className = 'dot' + (state === 'live' ? ' live' : state === 'down' ? ' down' : '');
+  text.textContent = state === 'live' ? t('live') : state === 'down' ? t('down') : t('waiting');
+}
+
+function renderSpeakToggle() {
+  const btn = document.getElementById('speakToggle');
+  btn.className = 'speak-toggle' + (autoSpeak ? ' on' : '');
+  btn.textContent = autoSpeak ? t('speakOn') : t('speakOff');
+}
+
+function renderCaption(entry) {
+  const el = document.getElementById('captionText');
+  const text = entry?.[lang];
+  if (!text) {
+    el.className = 'caption-text caption-empty';
+    el.textContent = t('empty');
+    return;
+  }
+  el.className = 'caption-text' + (lang === 'my' ? ' mm' : '');
+  el.textContent = text;
+}
+
+function renderHistory() {
+  const el = document.getElementById('history');
+  el.innerHTML = '';
+  recent.slice(0, -1).reverse().forEach(e => {
+    if (!e[lang]) return;
+    const row = document.createElement('div');
+    row.className = 'hist-row';
+    row.innerHTML = `<span class="hist-text"></span>`;
+    row.querySelector('.hist-text').textContent = e[lang];
+    el.appendChild(row);
+  });
+}
+
+function renderAll() {
+  renderLangPicker();
+  renderSpeakToggle();
+  renderCaption(recent.at(-1));
+  renderHistory();
+}
+
+function toggleAutoSpeak() {
+  autoSpeak = !autoSpeak;
+  localStorage.setItem('viewAutoSpeak', autoSpeak ? '1' : '0');
+  renderSpeakToggle();
+}
+
+function speak(text) {
+  const cfg = LANGS[lang];
+  if (window.speechSynthesis?.speaking) speechSynthesis.cancel();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+
+  if (cfg.serverTTS) {
+    const audio = new Audio(`/api/tts?lang=${cfg.ttsCode}&text=${encodeURIComponent(text.slice(0,200))}`);
+    currentAudio = audio;
+    audio.play().catch(() => {});
+  } else if (window.speechSynthesis) {
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = cfg.ttsCode; utt.rate = 0.88;
+    speechSynthesis.speak(utt);
+  }
+}
+
+function onEntry(entry) {
+  recent.push(entry);
+  if (recent.length > 10) recent.shift();
+  renderCaption(entry);
+  renderHistory();
+  if (autoSpeak && entry[lang]) speak(entry[lang]);
+}
+
+function connect() {
+  if (!token) {
+    document.getElementById('captionText').textContent = t('expired');
+    return;
+  }
+  renderStatus('waiting');
+  const es = new EventSource(`/api/view/${token}/stream`);
+  es.onopen  = () => renderStatus('live');
+  es.onerror = () => renderStatus('down');
+  es.onmessage = e => {
+    try { onEntry(JSON.parse(e.data)); } catch {}
+  };
+}
+
+renderAll();
+connect();
+</script>
+</body>
+</html>

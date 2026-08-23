@@ -506,6 +506,41 @@
   </div>
 </div>
 
+<!-- ── 視聴者と共有 ── -->
+<div class="net-card">
+  <div class="net-label">👀 視聴者と共有</div>
+  <div class="net-inner">
+    <div class="net-info">
+      <h3>翻訳を見るだけ（PIN不要）</h3>
+      <div id="viewUrl" class="net-url">読み込み中…</div>
+      <div class="net-hint">
+        このリンクを開くと、PIN不要で翻訳結果をリアルタイムに閲覧できます。
+        <button class="hist-btn" onclick="copyViewLink()" style="margin-left:6px;">📋 コピー</button>
+      </div>
+    </div>
+    <img id="viewQrImg" alt="視聴用QRコード" />
+  </div>
+</div>
+
+<!-- ── 用語辞書 ── -->
+<div class="history-card">
+  <div class="history-header" onclick="toggleDictionary()">
+    <span>📖 用語辞書</span>
+    <div class="hist-actions">
+      <span id="dictToggleIcon">▼</span>
+    </div>
+  </div>
+  <div id="dictBody" style="display:none; padding:0 16px 14px;">
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+      <input id="dictJa" type="text" placeholder="日本語" style="flex:1; min-width:100px; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:0.86rem;">
+      <input id="dictVi" type="text" placeholder="Tiếng Việt" style="flex:1; min-width:100px; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:0.86rem;">
+      <input id="dictMy" type="text" placeholder="မြန်မာ" style="flex:1; min-width:100px; padding:8px 10px; border:1.5px solid var(--border); border-radius:8px; font-size:0.86rem;">
+      <button class="hist-btn" onclick="addDictEntry()">➕ 追加</button>
+    </div>
+    <div id="dictList"></div>
+  </div>
+</div>
+
 <!-- ── Section Tabs ── -->
 <div class="section-tabs">
   <button class="section-tab active" id="tabVoice" onclick="switchSection('voice')">🎤 音声通訳</button>
@@ -797,6 +832,8 @@ function showPinScreen() {
 
 function hidePinScreen() {
   document.getElementById('pinScreen').style.display = 'none';
+  loadViewShare();
+  loadDictionary();
 }
 
 async function submitPin() {
@@ -840,6 +877,106 @@ function logout() {
   localStorage.removeItem('sessionToken');
   sessionToken = null;
   showPinScreen();
+}
+
+/* ═══════════════════════════════════════
+   視聴者と共有
+═══════════════════════════════════════ */
+let viewShareUrl = '';
+
+async function loadViewShare() {
+  if (!sessionToken) return;
+  try {
+    const r = await fetch('/api/view-token', { headers: { 'X-Session-Token': sessionToken } });
+    if (!r.ok) return;
+    const data = await r.json();
+    viewShareUrl = data.url;
+    document.getElementById('viewUrl').textContent = data.url;
+    document.getElementById('viewQrImg').src = `/api/view/${data.viewToken}/qr`;
+  } catch {}
+}
+
+function copyViewLink() {
+  if (!viewShareUrl) return;
+  navigator.clipboard?.writeText(viewShareUrl).then(() => {
+    const btn = event.target;
+    const orig = btn.textContent;
+    btn.textContent = '✅ コピー済み';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  }).catch(() => {});
+}
+
+/* ═══════════════════════════════════════
+   用語辞書
+═══════════════════════════════════════ */
+let dictOpen = false;
+
+function toggleDictionary() {
+  dictOpen = !dictOpen;
+  document.getElementById('dictBody').style.display = dictOpen ? 'block' : 'none';
+  document.getElementById('dictToggleIcon').textContent = dictOpen ? '▲' : '▼';
+}
+
+async function loadDictionary() {
+  if (!sessionToken) return;
+  try {
+    const r = await fetch('/api/dictionary', { headers: { 'X-Session-Token': sessionToken } });
+    if (!r.ok) return;
+    renderDictList(await r.json());
+  } catch {}
+}
+
+function renderDictList(entries) {
+  const el = document.getElementById('dictList');
+  if (!entries.length) {
+    el.innerHTML = '<div style="color:var(--muted); font-size:0.82rem; padding:6px 0;">登録された用語はありません</div>';
+    return;
+  }
+  el.innerHTML = '';
+  entries.forEach(d => {
+    const row = document.createElement('div');
+    row.className = 'hist-entry';
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.justifyContent = 'space-between';
+    row.style.gap = '8px';
+    const label = document.createElement('span');
+    label.style.fontSize = '0.86rem';
+    label.textContent = `${d.ja} → ${[d.vi, d.my].filter(Boolean).join(' / ')}`;
+    const delBtn = document.createElement('button');
+    delBtn.className = 'hist-btn';
+    delBtn.textContent = '🗑️';
+    delBtn.onclick = () => deleteDictEntry(d.id);
+    row.appendChild(label);
+    row.appendChild(delBtn);
+    el.appendChild(row);
+  });
+}
+
+async function addDictEntry() {
+  const ja = document.getElementById('dictJa').value.trim();
+  const vi = document.getElementById('dictVi').value.trim();
+  const my = document.getElementById('dictMy').value.trim();
+  if (!ja || (!vi && !my)) { alert('日本語 と 少なくとも1つの訳語を入力してください'); return; }
+  try {
+    const r = await fetch('/api/dictionary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken },
+      body: JSON.stringify({ ja, vi, my }),
+    });
+    if (!r.ok) { const d = await r.json().catch(()=>({})); alert(d.error || '追加に失敗しました'); return; }
+    document.getElementById('dictJa').value = '';
+    document.getElementById('dictVi').value = '';
+    document.getElementById('dictMy').value = '';
+    loadDictionary();
+  } catch {}
+}
+
+async function deleteDictEntry(id) {
+  try {
+    await fetch(`/api/dictionary/${id}`, { method: 'DELETE', headers: { 'X-Session-Token': sessionToken } });
+    loadDictionary();
+  } catch {}
 }
 
 /* ═══════════════════════════════════════

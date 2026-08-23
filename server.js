@@ -23,12 +23,17 @@ const anthropic = process.env.ANTHROPIC_API_KEY
 
 /* ── セッション管理 ── */
 const sessions = new Map();
-// { token → { context: [], history: [], lastActivity: timestamp } }
+// { token → { context: [], history: [], dictionary: [], viewToken, viewers: Set<res>, lastActivity } }
+const viewTokens = new Map(); // viewToken → sessionToken
 
 setInterval(() => {
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
   for (const [token, s] of sessions) {
-    if (s.lastActivity < cutoff) sessions.delete(token);
+    if (s.lastActivity < cutoff) {
+      if (s.viewToken) viewTokens.delete(s.viewToken);
+      for (const res of s.viewers) { try { res.end(); } catch {} }
+      sessions.delete(token);
+    }
   }
 }, 60 * 60 * 1000);
 
@@ -112,7 +117,11 @@ app.post('/api/auth', rateLimit, (req, res) => {
     return res.status(401).json({ error: 'PINが正しくありません' });
   }
   const token = crypto.randomUUID();
-  sessions.set(token, { context: [], history: [], lastActivity: Date.now() });
+  sessions.set(token, {
+    context: [], history: [], dictionary: [],
+    viewToken: null, viewers: new Set(),
+    lastActivity: Date.now(),
+  });
   res.json({ token });
 });
 
@@ -140,6 +149,45 @@ app.get('/api/netinfo', (req, res) => {
   res.json({ ips: getLocalIPs(), port: PORT, protocol: proto });
 });
 
+/* ── 視聴専用リンク (PIN不要でリアルタイム翻訳をフォロー) ── */
+app.get('/api/view-token', requireSession, (req, res) => {
+  const sess = req.sess;
+  if (!sess.viewToken) {
+    sess.viewToken = crypto.randomUUID();
+    viewTokens.set(sess.viewToken, req.headers['x-session-token']);
+  }
+  const url = `${req.protocol}://${req.get('host')}/view.html?t=${sess.viewToken}`;
+  res.json({ viewToken: sess.viewToken, url });
+});
+
+app.get('/api/view/:viewToken/qr', async (req, res) => {
+  const token = viewTokens.get(req.params.viewToken);
+  if (!token || !sessions.has(token)) return res.status(404).send('Not found');
+  const url = `${req.protocol}://${req.get('host')}/view.html?t=${req.params.viewToken}`;
+  const svg = await QRCode.toString(url, {
+    type: 'svg', color: { dark: '#4f46e5', light: '#ffffff' }, margin: 2, width: 200,
+  });
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.send(svg);
+});
+
+app.get('/api/view/:viewToken/stream', (req, res) => {
+  const token = viewTokens.get(req.params.viewToken);
+  const sess  = token && sessions.get(token);
+  if (!sess) return res.status(410).send('Link expired');
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+
+  sess.viewers.add(res);
+  const last = sess.context.at(-1);
+  if (last) res.write(`data: ${JSON.stringify(last)}\n\n`);
+
+  req.on('close', () => sess.viewers.delete(res));
+});
+
 /* ── TTS プロキシ (ミャンマー語など内蔵ボイスのない言語用) ── */
 app.get('/api/tts', async (req, res) => {
   const { text, lang } = req.query;
@@ -164,6 +212,15 @@ app.get('/api/tts', async (req, res) => {
 
 /* ── 翻訳 API (Claude Sonnet + コンテキスト) ── */
 const LANG_NAMES = { ja: '日本語', vi: 'ベトナム語', my: 'ミャンマー語' };
+
+function buildGlossary(dictionary, targets) {
+  if (!dictionary?.length) return '';
+  const lines = dictionary
+    .map(d => `${d.ja} → ` + targets.map(t => d[t] ? `${t}:${d[t]}` : null).filter(Boolean).join(', '))
+    .filter(l => !l.endsWith('→ '));
+  if (!lines.length) return '';
+  return 'Glossary — always use these exact translations for these terms:\n' + lines.join('\n');
+}
 
 const TRANSLATION_SYSTEM = `You are a professional real-time interpreter specializing in Japanese, Vietnamese, and Burmese (Myanmar).
 
@@ -206,10 +263,14 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
     return `${ex.from}: ${ex.text}\n${tLine}`;
   }).join('\n---\n');
 
-  const langSpec = `Translate the following into ${targets.map(t => `${t} (${LANG_NAMES[t]})`).join(' and ')}.`;
-  const userMsg = ctxLines
-    ? `${langSpec}\n\nConversation context:\n${ctxLines}\n\nNow translate:\n${from}: ${text.trim()}`
-    : `${langSpec}\n\n${from}: ${text.trim()}`;
+  const langSpec  = `Translate the following into ${targets.map(t => `${t} (${LANG_NAMES[t]})`).join(' and ')}.`;
+  const glossary  = buildGlossary(sess.dictionary, targets);
+  const userMsg = [
+    langSpec,
+    glossary,
+    ctxLines ? `Conversation context:\n${ctxLines}` : '',
+    `Now translate:\n${from}: ${text.trim()}`,
+  ].filter(Boolean).join('\n\n');
 
   // SSE ストリーミングレスポンス
   res.setHeader('Content-Type', 'text/event-stream');
@@ -250,6 +311,9 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
       sess.context.push(entry);
       if (sess.context.length > 50) sess.context.shift();
       sess.history.push(entry);
+      for (const viewerRes of sess.viewers) {
+        try { viewerRes.write(`data: ${JSON.stringify(entry)}\n\n`); } catch {}
+      }
 
       console.log(`[translate] model=${model} from=${from}`);
       sse({ done: true, t: translations });
@@ -278,9 +342,15 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' };
 const DOC_BATCH = 40;
 
-async function translateDocBatch(texts, targetLang, client) {
+async function translateDocBatch(texts, targetLang, client, glossary) {
   if (!texts.length) return [];
-  const prompt = `Translate the following Japanese texts to ${DOC_LANG_NAMES[targetLang]}.\nReturn ONLY a JSON array of ${texts.length} translated strings in the same order. No explanation.\n\nInput: ${JSON.stringify(texts)}\n\nOutput:`;
+  const prompt = [
+    `Translate the following Japanese texts to ${DOC_LANG_NAMES[targetLang]}.`,
+    glossary,
+    `Return ONLY a JSON array of ${texts.length} translated strings in the same order. No explanation.`,
+    `Input: ${JSON.stringify(texts)}`,
+    'Output:',
+  ].filter(Boolean).join('\n\n');
   const resp = await client.messages.create({
     model: 'claude-haiku-4-5-20251001', max_tokens: 4096,
     messages: [{ role: 'user', content: prompt }],
@@ -290,12 +360,12 @@ async function translateDocBatch(texts, targetLang, client) {
   return JSON.parse(m ? m[0] : raw);
 }
 
-async function translateDocTexts(texts, targetLang, client) {
+async function translateDocTexts(texts, targetLang, client, glossary) {
   const results = [...texts];
   const idxs = texts.reduce((a, t, i) => (t && t.trim() ? [...a, i] : a), []);
   for (let b = 0; b < idxs.length; b += DOC_BATCH) {
     const batch = idxs.slice(b, b + DOC_BATCH);
-    const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client);
+    const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client, glossary);
     batch.forEach((oi, j) => { if (translated[j]) results[oi] = translated[j]; });
   }
   return results;
@@ -377,16 +447,18 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
   try {
     const outputs = [];
     for (const lang of langs) {
-      const suffix = lang === 'Vietnamese' ? '_vi' : '_my';
+      const code     = lang === 'Vietnamese' ? 'vi' : 'my';
+      const suffix   = `_${code}`;
+      const glossary = buildGlossary(req.sess.dictionary, [code]);
       let outBuf;
       if (ext === '.xlsx') {
         const texts = extractExcelTexts(req.file.buffer);
-        const translated = await translateDocTexts(texts, lang, anthropic);
+        const translated = await translateDocTexts(texts, lang, anthropic, glossary);
         outBuf = processExcel(req.file.buffer, translated, texts);
       } else {
         const info = extractDocxTexts(req.file.buffer);
         const texts = info.paras.map(p => p.text);
-        const translated = await translateDocTexts(texts, lang, anthropic);
+        const translated = await translateDocTexts(texts, lang, anthropic, glossary);
         outBuf = rebuildDocx(req.file.buffer, translated, info);
       }
       outputs.push({ name: `${stem}${suffix}${ext}`, buf: outBuf });
@@ -421,6 +493,26 @@ app.get('/api/history', requireSession, (req, res) => {
 /* ── コンテキストリセット (履歴は保持) ── */
 app.delete('/api/context', requireSession, (req, res) => {
   req.sess.context = [];
+  res.json({ ok: true });
+});
+
+/* ── カスタム辞書 ── */
+app.get('/api/dictionary', requireSession, (req, res) => {
+  res.json(req.sess.dictionary);
+});
+
+app.post('/api/dictionary', requireSession, rateLimit, (req, res) => {
+  const { ja, vi, my } = req.body;
+  if (!ja?.trim() || (!vi?.trim() && !my?.trim())) {
+    return res.status(400).json({ error: '日本語 と 少なくとも1つの訳語が必要です' });
+  }
+  const entry = { id: crypto.randomUUID(), ja: ja.trim(), vi: vi?.trim() || '', my: my?.trim() || '' };
+  req.sess.dictionary.push(entry);
+  res.json(entry);
+});
+
+app.delete('/api/dictionary/:id', requireSession, (req, res) => {
+  req.sess.dictionary = req.sess.dictionary.filter(d => d.id !== req.params.id);
   res.json({ ok: true });
 });
 
