@@ -855,8 +855,18 @@ function showPinScreen() {
 
 function hidePinScreen() {
   document.getElementById('pinScreen').style.display = 'none';
+  startKeepAlive();
   loadViewShare();
   loadDictionary();
+}
+
+// Render 無料枠は 15 分で停止 → 12 分ごとに軽量 ping してスリープを防ぐ
+let _keepAliveTimer = null;
+function startKeepAlive() {
+  if (_keepAliveTimer) return;
+  _keepAliveTimer = setInterval(() => {
+    if (sessionToken) fetch('/api/session', { headers: { 'X-Session-Token': sessionToken } }).catch(() => {});
+  }, 12 * 60 * 1000);
 }
 
 /* Render無料枠はスリープ後の初回アクセスで起動に時間がかかるため、
@@ -1436,6 +1446,11 @@ async function doTranslate(lang, text) {
   spinnerLabel.textContent = '翻訳中…';
   const wakeupTimer = setTimeout(() => { spinnerLabel.textContent = WAKEUP_MSG; }, WAKEUP_DELAY);
 
+  // done イベント到着まで追跡 (タイムアウト・サイレント切断検知用)
+  let doneReceived = false;
+  // 45 秒以内に完了しない場合は abort してタイムアウトエラーを表示
+  const transTimeout = setTimeout(() => { if (!doneReceived) myController.abort(); }, 45000);
+
   // 翻訳先エリアにカーソルを表示（更新前の訳文は履歴へ退避）
   TARGETS[lang].forEach(tgt => {
     const el = document.getElementById(`result-${lang}-${tgt}`);
@@ -1493,6 +1508,7 @@ async function doTranslate(lang, text) {
         }
 
         if (ev.done) {
+          doneReceived = true;
           const t = ev.t || {};
           TARGETS[lang].forEach(tgt => {
             const el = document.getElementById(`result-${lang}-${tgt}`);
@@ -1514,12 +1530,28 @@ async function doTranslate(lang, text) {
       }
     }
 
+    // done イベントが来ないまま stream が閉じた = プロキシ切断 or サーバーエラー
+    if (!doneReceived) {
+      showErr(lang, '通信が途切れました。もう一度試してください。');
+      resetPending(lang);
+    }
+
   } catch(err) {
-    if (err.name==='AbortError') return; // より新しいリクエストに引き継がれたので何もしない
+    if (err.name === 'AbortError') {
+      // 新しいリクエストに引き継がれた場合は何もしない
+      if (s.controller !== myController) return;
+      // タイムアウトによる中断
+      if (!doneReceived) {
+        showErr(lang, '翻訳がタイムアウトしました。もう一度お試しください。');
+        resetPending(lang);
+      }
+      return;
+    }
     showErr(lang, '接続エラー: '+err.message);
     resetPending(lang);
   } finally {
     clearTimeout(wakeupTimer);
+    clearTimeout(transTimeout);
     // 自分より新しいリクエストが既に始まっている場合はそちらの表示を壊さないよう何もしない
     if (s.controller === myController) {
       s.controller = null;

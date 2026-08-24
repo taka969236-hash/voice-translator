@@ -278,6 +278,10 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   const sse = obj => res.write(`data: ${JSON.stringify(obj)}\n\n`);
 
+  // Render プロキシの idle タイムアウトを回避するため 15 秒ごとに ping を送る
+  const ping = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 15000);
+  res.on('close', () => clearInterval(ping));
+
   const MODELS = [
     'claude-sonnet-4-6',
     'claude-haiku-4-5-20251001',
