@@ -292,7 +292,7 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
     let accumulated = '';
     try {
       const stream = anthropic.messages.stream({
-        model, max_tokens: 800, system: TRANSLATION_SYSTEM,
+        model, max_tokens: 800, temperature: 0, system: TRANSLATION_SYSTEM,
         messages: [{ role: 'user', content: userMsg }],
       });
 
@@ -363,7 +363,7 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
     'Output:',
   ].filter(Boolean).join('\n\n');
   const resp = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001', max_tokens: 4096,
+    model: 'claude-haiku-4-5-20251001', max_tokens: 4096, temperature: 0,
     messages: [{ role: 'user', content: prompt }],
   });
   const raw = resp.content[0].text.trim();
