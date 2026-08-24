@@ -957,12 +957,54 @@ function toggleDictionary() {
   document.getElementById('dictToggleIcon').textContent = dictOpen ? '▲' : '▼';
 }
 
+/* ── 辞書 localStorage 永続化 ── */
+const DICT_LS_KEY = 'vt-dict';
+function saveDictLocal(entries) {
+  try { localStorage.setItem(DICT_LS_KEY, JSON.stringify(entries)); } catch {}
+}
+function getDictLocal() {
+  try { return JSON.parse(localStorage.getItem(DICT_LS_KEY) || '[]'); } catch { return []; }
+}
+
+/* サーバーから取得し直して localStorage と表示を更新 */
+async function refreshDict() {
+  if (!sessionToken) return;
+  try {
+    const r = await fetch('/api/dictionary', { headers: { 'X-Session-Token': sessionToken } });
+    if (!r.ok) return;
+    const entries = await r.json();
+    saveDictLocal(entries);
+    renderDictList(entries);
+  } catch {}
+}
+
+/* ログイン時: サーバーが空なら localStorage から復元して同期 */
 async function loadDictionary() {
   if (!sessionToken) return;
   try {
     const r = await fetch('/api/dictionary', { headers: { 'X-Session-Token': sessionToken } });
     if (!r.ok) return;
-    renderDictList(await r.json());
+    const serverEntries = await r.json();
+    if (serverEntries.length > 0) {
+      // セッションが生きていたので、サーバーのデータを正とする
+      saveDictLocal(serverEntries);
+      renderDictList(serverEntries);
+    } else {
+      // 再起動等でサーバーが空 → localStorage から復元
+      const local = getDictLocal();
+      if (!local.length) { renderDictList([]); return; }
+      const restored = [];
+      for (const e of local) {
+        const res = await fetch('/api/dictionary', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken },
+          body: JSON.stringify({ ja: e.ja, vi: e.vi, my: e.my }),
+        });
+        if (res.ok) restored.push(await res.json());
+      }
+      saveDictLocal(restored); // サーバー発行の新IDで上書き
+      renderDictList(restored);
+    }
   } catch {}
 }
 
@@ -973,22 +1015,53 @@ function renderDictList(entries) {
     return;
   }
   el.innerHTML = '';
+  const inStyle = 'flex:1; min-width:72px; padding:5px 7px; border:1.5px solid var(--border); border-radius:6px; font-size:0.83rem;';
   entries.forEach(d => {
     const row = document.createElement('div');
     row.className = 'hist-entry';
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.justifyContent = 'space-between';
-    row.style.gap = '8px';
+    row.style.cssText = 'display:flex; flex-direction:column; gap:4px; padding:6px 0;';
+
+    /* ── 表示行 ── */
+    const viewRow = document.createElement('div');
+    viewRow.style.cssText = 'display:flex; align-items:center; gap:6px;';
     const label = document.createElement('span');
-    label.style.fontSize = '0.86rem';
+    label.style.cssText = 'font-size:0.86rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;';
     label.textContent = `${d.ja} → ${[d.vi, d.my].filter(Boolean).join(' / ')}`;
+    const editBtn = document.createElement('button');
+    editBtn.className = 'hist-btn'; editBtn.textContent = '✏️'; editBtn.title = '編集';
     const delBtn = document.createElement('button');
-    delBtn.className = 'hist-btn';
-    delBtn.textContent = '🗑️';
-    delBtn.onclick = () => deleteDictEntry(d.id);
-    row.appendChild(label);
-    row.appendChild(delBtn);
+    delBtn.className = 'hist-btn'; delBtn.textContent = '🗑️'; delBtn.title = '削除';
+    delBtn.onclick = () => { if (confirm(`「${d.ja}」を削除しますか？`)) deleteDictEntry(d.id); };
+    viewRow.appendChild(label); viewRow.appendChild(editBtn); viewRow.appendChild(delBtn);
+
+    /* ── 編集行（初期非表示）── */
+    const editRow = document.createElement('div');
+    editRow.style.cssText = 'display:none; flex-wrap:wrap; gap:5px; align-items:center;';
+    const jaIn = document.createElement('input');
+    jaIn.type='text'; jaIn.value=d.ja; jaIn.placeholder='日本語'; jaIn.style.cssText=inStyle;
+    const viIn = document.createElement('input');
+    viIn.type='text'; viIn.value=d.vi||''; viIn.placeholder='Tiếng Việt'; viIn.style.cssText=inStyle;
+    const myIn = document.createElement('input');
+    myIn.type='text'; myIn.value=d.my||''; myIn.placeholder='မြန်မာ';
+    myIn.style.cssText = inStyle + ' font-family:\"Noto Sans Myanmar\",sans-serif;';
+    const saveBtn = document.createElement('button');
+    saveBtn.className='hist-btn'; saveBtn.textContent='💾'; saveBtn.title='保存';
+    saveBtn.onclick = async () => {
+      const ja2=jaIn.value.trim(), vi2=viIn.value.trim(), my2=myIn.value.trim();
+      if (!ja2||(!vi2&&!my2)) { alert('日本語 と 少なくとも1つの訳語が必要です'); return; }
+      await updateDictEntry(d.id, ja2, vi2, my2);
+    };
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className='hist-btn'; cancelBtn.textContent='✕'; cancelBtn.title='キャンセル';
+    cancelBtn.onclick = () => { editRow.style.display='none'; viewRow.style.display='flex'; };
+    // Enter キーで保存
+    [jaIn, viIn, myIn].forEach(inp => inp.addEventListener('keydown', e => { if (e.key==='Enter') saveBtn.click(); }));
+    editRow.appendChild(jaIn); editRow.appendChild(viIn); editRow.appendChild(myIn);
+    editRow.appendChild(saveBtn); editRow.appendChild(cancelBtn);
+
+    editBtn.onclick = () => { viewRow.style.display='none'; editRow.style.display='flex'; jaIn.focus(); };
+
+    row.appendChild(viewRow); row.appendChild(editRow);
     el.appendChild(row);
   });
 }
@@ -1008,14 +1081,26 @@ async function addDictEntry() {
     document.getElementById('dictJa').value = '';
     document.getElementById('dictVi').value = '';
     document.getElementById('dictMy').value = '';
-    loadDictionary();
+    await refreshDict();
   } catch {}
 }
 
 async function deleteDictEntry(id) {
   try {
     await fetch(`/api/dictionary/${id}`, { method: 'DELETE', headers: { 'X-Session-Token': sessionToken } });
-    loadDictionary();
+    await refreshDict();
+  } catch {}
+}
+
+async function updateDictEntry(id, ja, vi, my) {
+  try {
+    const r = await fetch(`/api/dictionary/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Session-Token': sessionToken },
+      body: JSON.stringify({ ja, vi, my }),
+    });
+    if (!r.ok) { const d = await r.json().catch(()=>({})); alert(d.error || '更新に失敗しました'); return; }
+    await refreshDict();
   } catch {}
 }
 

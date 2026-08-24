@@ -527,6 +527,18 @@ app.delete('/api/dictionary/:id', requireSession, (req, res) => {
   res.json({ ok: true });
 });
 
+app.put('/api/dictionary/:id', requireSession, rateLimit, (req, res) => {
+  const { ja, vi, my } = req.body;
+  if (!ja?.trim() || (!vi?.trim() && !my?.trim())) {
+    return res.status(400).json({ error: '日本語 と 少なくとも1つの訳語が必要です' });
+  }
+  const dict = req.sess.dictionary;
+  const idx = dict.findIndex(d => d.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'not found' });
+  dict[idx] = { ...dict[idx], ja: ja.trim(), vi: vi?.trim() || '', my: my?.trim() || '' };
+  res.json(dict[idx]);
+});
+
 /* ── サーバー起動 ── */
 const PORT = process.env.PORT || 3000;
 
