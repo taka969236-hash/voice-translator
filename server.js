@@ -351,7 +351,7 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' };
-const DOC_BATCH = 40;
+const DOC_BATCH = 15; // 40→15: 出力トークン超過による途中切断を防止
 
 async function translateDocBatch(texts, targetLang, client, glossary) {
   if (!texts.length) return [];
@@ -362,13 +362,37 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
     `Input: ${JSON.stringify(texts)}`,
     'Output:',
   ].filter(Boolean).join('\n\n');
-  const resp = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001', max_tokens: 4096, temperature: 0,
-    messages: [{ role: 'user', content: prompt }],
-  });
-  const raw = resp.content[0].text.trim();
-  const m = raw.match(/\[[\s\S]*\]/);
-  return JSON.parse(m ? m[0] : raw);
+
+  // バッチ翻訳を最大2回試行（1回目で配列が短かったら再試行）
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const resp = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 8192, temperature: 0,
+      messages: [{ role: 'user', content: prompt }],
+    });
+    const raw = resp.content[0].text.trim();
+    const m = raw.match(/\[[\s\S]*\]/);
+    try {
+      const arr = JSON.parse(m ? m[0] : raw);
+      if (Array.isArray(arr) && arr.length === texts.length) return arr;
+      // 配列が短い（出力途切れ）→ もう1回試みる
+      console.warn(`[doc-batch] attempt=${attempt+1} got ${arr?.length}/${texts.length} items, retrying`);
+    } catch {
+      console.warn(`[doc-batch] attempt=${attempt+1} JSON parse failed, retrying`);
+    }
+  }
+
+  // バッチが2回とも失敗 → 1件ずつ個別翻訳（確実だが低速）
+  console.warn(`[doc-batch] falling back to 1-by-1 for ${texts.length} texts`);
+  return Promise.all(texts.map(async (t) => {
+    try {
+      const r = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001', max_tokens: 1024, temperature: 0,
+        messages: [{ role: 'user', content:
+          `Translate to ${DOC_LANG_NAMES[targetLang]}. Return only the translation, no explanation.\n\n${t}` }],
+      });
+      return r.content[0].text.trim() || t;
+    } catch { return t; }
+  }));
 }
 
 async function translateDocTexts(texts, targetLang, client, glossary) {
@@ -377,7 +401,10 @@ async function translateDocTexts(texts, targetLang, client, glossary) {
   for (let b = 0; b < idxs.length; b += DOC_BATCH) {
     const batch = idxs.slice(b, b + DOC_BATCH);
     const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client, glossary);
-    batch.forEach((oi, j) => { if (translated[j]) results[oi] = translated[j]; });
+    batch.forEach((oi, j) => {
+      // 翻訳結果が存在し、かつ元テキストと同一でない場合のみ採用
+      if (translated[j] && translated[j] !== texts[oi]) results[oi] = translated[j];
+    });
   }
   return results;
 }
