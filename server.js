@@ -351,48 +351,61 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' };
-const DOC_BATCH = 15; // 40→15: 出力トークン超過による途中切断を防止
+// ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
+const DOC_BATCH = 6;
+
+async function translateOne(text, targetLang, client) {
+  const r = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001', max_tokens: 2048, temperature: 0,
+    messages: [{ role: 'user', content:
+      `Translate this Japanese text to ${DOC_LANG_NAMES[targetLang]}. Return only the translation, no markdown, no explanation.\n\n${text}` }],
+  });
+  const out = r.content[0].text.trim();
+  // モデルが元テキストをそのまま返した場合は失敗とみなす
+  return (out && out !== text) ? out : null;
+}
 
 async function translateDocBatch(texts, targetLang, client, glossary) {
   if (!texts.length) return [];
   const prompt = [
     `Translate the following Japanese texts to ${DOC_LANG_NAMES[targetLang]}.`,
     glossary,
-    `Return ONLY a JSON array of ${texts.length} translated strings in the same order. No explanation.`,
+    `Return ONLY a JSON array of exactly ${texts.length} translated strings in the same order. No explanation, no markdown.`,
     `Input: ${JSON.stringify(texts)}`,
     'Output:',
   ].filter(Boolean).join('\n\n');
 
-  // バッチ翻訳を最大2回試行（1回目で配列が短かったら再試行）
   for (let attempt = 0; attempt < 2; attempt++) {
     const resp = await client.messages.create({
       model: 'claude-haiku-4-5-20251001', max_tokens: 8192, temperature: 0,
       messages: [{ role: 'user', content: prompt }],
     });
+    // stop_reason が max_tokens = 出力が切断されている → 即フォールバック
+    if (resp.stop_reason === 'max_tokens') {
+      console.warn(`[doc-batch] attempt=${attempt+1} truncated (max_tokens), skip to 1-by-1`);
+      break;
+    }
     const raw = resp.content[0].text.trim();
     const m = raw.match(/\[[\s\S]*\]/);
     try {
       const arr = JSON.parse(m ? m[0] : raw);
       if (Array.isArray(arr) && arr.length === texts.length) return arr;
-      // 配列が短い（出力途切れ）→ もう1回試みる
-      console.warn(`[doc-batch] attempt=${attempt+1} got ${arr?.length}/${texts.length} items, retrying`);
+      console.warn(`[doc-batch] attempt=${attempt+1} got ${arr?.length ?? 'n/a'}/${texts.length} items`);
     } catch {
-      console.warn(`[doc-batch] attempt=${attempt+1} JSON parse failed, retrying`);
+      console.warn(`[doc-batch] attempt=${attempt+1} JSON parse failed`);
     }
   }
 
-  // バッチが2回とも失敗 → 1件ずつ個別翻訳（確実だが低速）
-  console.warn(`[doc-batch] falling back to 1-by-1 for ${texts.length} texts`);
-  return Promise.all(texts.map(async (t) => {
+  // フォールバック: 1件ずつ順次翻訳（並列禁止: レート制限を避けるため）
+  console.warn(`[doc-batch] 1-by-1 fallback for ${texts.length} texts`);
+  const results = [];
+  for (const t of texts) {
     try {
-      const r = await client.messages.create({
-        model: 'claude-haiku-4-5-20251001', max_tokens: 1024, temperature: 0,
-        messages: [{ role: 'user', content:
-          `Translate to ${DOC_LANG_NAMES[targetLang]}. Return only the translation, no explanation.\n\n${t}` }],
-      });
-      return r.content[0].text.trim() || t;
-    } catch { return t; }
-  }));
+      const out = await translateOne(t, targetLang, client);
+      results.push(out ?? t);
+    } catch { results.push(t); }
+  }
+  return results;
 }
 
 async function translateDocTexts(texts, targetLang, client, glossary) {
