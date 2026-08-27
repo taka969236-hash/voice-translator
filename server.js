@@ -354,20 +354,27 @@ const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' 
 // ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
 const DOC_BATCH = 6;
 
-// 数値・日付・時刻のみのテキストは翻訳不要（そのまま保持）
+// 数値・日付・時刻・アイウエオ列挙符号のみのテキストは翻訳不要（そのまま保持）
 function isNumericOnly(text) {
   const t = text.trim();
   if (t.length === 0) return true;
-  if (/^[\d,]+(\.\d+)?%?$/.test(t)) return true;                        // 数字・小数・%
+  if (/^[\d,]+(\.\d+)?%?$/.test(t)) return true;                          // 数字・小数・%
   if (/^\d{4}[\/\-年]\d{1,2}([\/\-月]\d{1,2}日?)?$/.test(t)) return true; // 日付
-  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) return true;                  // 時刻
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) return true;                    // 時刻
   if (t.length <= 1) return true;
+  // ア・イ・ウ等の列挙符号のみ（1〜3文字、括弧や句読点付きも含む）例: ア ア. (ア) ア）
+  if (/^[（(]?[ぁ-ゟァ-ヶ]{1,3}[）).。]?$/.test(t)) return true;
+  // 丸数字・括弧数字・ローマ数字のみ 例: ①  (1)  Ⅱ
+  if (/^[①-⑳㈠-㈩Ⅰ-ⅻ][.。\s]*$/.test(t)) return true;
   return false;
 }
 
 // ひらがな・カタカナが含まれる = 翻訳失敗（日本語が残っている）
+// ただし先頭の列挙符号（ア. など）は除いて判定
 function hasJapaneseKana(text) {
-  return /[぀-ゟ゠-ヿ]/.test(text);
+  // 先頭の「（ア）」「ア. 」などを除いた本文で検出
+  const body = text.replace(/^[\s（(]*[ぁ-ゟァ-ヶ]{1,3}[\s）).。]+/, '');
+  return /[ぁ-ゟァ-ヶ]/.test(body);
 }
 
 async function translateOne(text, targetLang, client) {
@@ -375,7 +382,7 @@ async function translateOne(text, targetLang, client) {
   const r = await client.messages.create({
     model: 'claude-haiku-4-5-20251001', max_tokens: 2048, temperature: 0,
     messages: [{ role: 'user', content:
-      `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. Return only the translation, no markdown, no explanation.\n\n${text}` }],
+      `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a kana list marker (ア, イ, ウ, etc.), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
   });
   const out = r.content[0].text.trim();
   // 元テキストと同一、またはひらがな/カタカナが残っている場合は失敗
@@ -388,6 +395,7 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
   const prompt = [
     `Translate the following Japanese texts to ${langName}.`,
     `CRITICAL: Output ONLY in ${langName}. Do NOT include any Japanese hiragana, katakana, or kanji in your translations.`,
+    `EXCEPTION: If a text starts with a Japanese kana list marker (e.g. ア, イ, ウ, エ, possibly with punctuation like ア. or （ア）), keep that marker exactly as-is and translate only the remaining text.`,
     glossary,
     `Return ONLY a JSON array of exactly ${texts.length} translated strings in the same order. No explanation, no markdown.`,
     `Input: ${JSON.stringify(texts)}`,
