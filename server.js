@@ -354,21 +354,40 @@ const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' 
 // ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
 const DOC_BATCH = 6;
 
+// 数値・日付・時刻のみのテキストは翻訳不要（そのまま保持）
+function isNumericOnly(text) {
+  const t = text.trim();
+  if (t.length === 0) return true;
+  if (/^[\d,]+(\.\d+)?%?$/.test(t)) return true;                        // 数字・小数・%
+  if (/^\d{4}[\/\-年]\d{1,2}([\/\-月]\d{1,2}日?)?$/.test(t)) return true; // 日付
+  if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) return true;                  // 時刻
+  if (t.length <= 1) return true;
+  return false;
+}
+
+// ひらがな・カタカナが含まれる = 翻訳失敗（日本語が残っている）
+function hasJapaneseKana(text) {
+  return /[぀-ゟ゠-ヿ]/.test(text);
+}
+
 async function translateOne(text, targetLang, client) {
+  const langName = DOC_LANG_NAMES[targetLang];
   const r = await client.messages.create({
     model: 'claude-haiku-4-5-20251001', max_tokens: 2048, temperature: 0,
     messages: [{ role: 'user', content:
-      `Translate this Japanese text to ${DOC_LANG_NAMES[targetLang]}. Return only the translation, no markdown, no explanation.\n\n${text}` }],
+      `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. Return only the translation, no markdown, no explanation.\n\n${text}` }],
   });
   const out = r.content[0].text.trim();
-  // モデルが元テキストをそのまま返した場合は失敗とみなす
-  return (out && out !== text) ? out : null;
+  // 元テキストと同一、またはひらがな/カタカナが残っている場合は失敗
+  return (out && out !== text && !hasJapaneseKana(out)) ? out : null;
 }
 
 async function translateDocBatch(texts, targetLang, client, glossary) {
   if (!texts.length) return [];
+  const langName = DOC_LANG_NAMES[targetLang];
   const prompt = [
-    `Translate the following Japanese texts to ${DOC_LANG_NAMES[targetLang]}.`,
+    `Translate the following Japanese texts to ${langName}.`,
+    `CRITICAL: Output ONLY in ${langName}. Do NOT include any Japanese hiragana, katakana, or kanji in your translations.`,
     glossary,
     `Return ONLY a JSON array of exactly ${texts.length} translated strings in the same order. No explanation, no markdown.`,
     `Input: ${JSON.stringify(texts)}`,
@@ -410,15 +429,37 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
 
 async function translateDocTexts(texts, targetLang, client, glossary) {
   const results = [...texts];
-  const idxs = texts.reduce((a, t, i) => (t && t.trim() ? [...a, i] : a), []);
+  // 空白・数値・日付のみのテキストは翻訳対象外
+  const idxs = texts.reduce((a, t, i) => {
+    if (t && t.trim() && !isNumericOnly(t)) a.push(i);
+    return a;
+  }, []);
+
   for (let b = 0; b < idxs.length; b += DOC_BATCH) {
     const batch = idxs.slice(b, b + DOC_BATCH);
     const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client, glossary);
     batch.forEach((oi, j) => {
-      // 翻訳結果が存在し、かつ元テキストと同一でない場合のみ採用
-      if (translated[j] && translated[j] !== texts[oi]) results[oi] = translated[j];
+      const t = translated[j];
+      // 翻訳結果が存在し、元テキストと異なり、ひらがな/カタカナがない場合のみ採用
+      if (t && t !== texts[oi] && !hasJapaneseKana(t)) results[oi] = t;
+      else if (t && hasJapaneseKana(t)) {
+        console.warn(`[doc-texts] kana in result idx=${oi}: "${t.slice(0,40)}"`);
+      }
     });
   }
+
+  // 第2パス: ひらがな/カタカナが残っているか元テキストのままの項目を個別再試行
+  const retryIdxs = idxs.filter(i => hasJapaneseKana(results[i]) || results[i] === texts[i]);
+  if (retryIdxs.length > 0) {
+    console.warn(`[doc-texts] 2nd-pass retry for ${retryIdxs.length} items`);
+    for (const i of retryIdxs) {
+      try {
+        const out = await translateOne(texts[i], targetLang, client);
+        if (out && !hasJapaneseKana(out)) results[i] = out;
+      } catch {}
+    }
+  }
+
   return results;
 }
 
