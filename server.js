@@ -353,6 +353,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' };
 // ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
 const DOC_BATCH = 6;
+// 文書翻訳はSonnetで品質優先（Haikuはミャンマー語の精度不足・誤訳多発）
+const DOC_MODEL = 'claude-sonnet-4-6';
 
 // 数値・日付・時刻・アイウエオ列挙符号のみのテキストは翻訳不要（そのまま保持）
 function isNumericOnly(text) {
@@ -362,31 +364,32 @@ function isNumericOnly(text) {
   if (/^\d{4}[\/\-年]\d{1,2}([\/\-月]\d{1,2}日?)?$/.test(t)) return true; // 日付
   if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(t)) return true;                    // 時刻
   if (t.length <= 1) return true;
-  // ア・イ・ウ等の列挙符号のみ（1〜3文字、括弧や句読点付きも含む）例: ア ア. (ア) ア）
-  if (/^[（(]?[ぁ-ゟァ-ヶ]{1,3}[）).。]?$/.test(t)) return true;
+  // ア・イ・ウ等の列挙符号のみ（1文字 + 任意の括弧/句読点）例: ア ア. (ア) ア）
+  if (/^[（(]?[ぁ-ゟァ-ヶ][）).。]?$/.test(t)) return true;
   // 丸数字・括弧数字・ローマ数字のみ 例: ①  (1)  Ⅱ
   if (/^[①-⑳㈠-㈩Ⅰ-ⅻ][.。\s]*$/.test(t)) return true;
   return false;
 }
 
-// ひらがな・カタカナが含まれる = 翻訳失敗（日本語が残っている）
+// 日本語（ひらがな・カタカナ・漢字）が残っている = 翻訳失敗
 // ただし先頭の列挙符号（ア. など）は除いて判定
-function hasJapaneseKana(text) {
-  // 先頭の「（ア）」「ア. 」などを除いた本文で検出
-  const body = text.replace(/^[\s（(]*[ぁ-ゟァ-ヶ]{1,3}[\s）).。]+/, '');
-  return /[ぁ-ゟァ-ヶ]/.test(body);
+function hasJapaneseSigns(text) {
+  // 先頭の「（ア）」「ア. 」などの列挙符号を除いた本文で検出
+  const body = text.replace(/^[\s（(]*[ぁ-ゟァ-ヶ][\s）).。]+/, '');
+  // ひらがな・カタカナ・漢字（CJK統合漢字）のいずれかが残っていれば失敗
+  return /[ぁ-ゟァ-ヶ一-鿿㐀-䶿]/.test(body);
 }
 
 async function translateOne(text, targetLang, client) {
   const langName = DOC_LANG_NAMES[targetLang];
   const r = await client.messages.create({
-    model: 'claude-haiku-4-5-20251001', max_tokens: 2048, temperature: 0,
+    model: DOC_MODEL, max_tokens: 2048, temperature: 0,
     messages: [{ role: 'user', content:
       `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a kana list marker (ア, イ, ウ, etc.), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
   });
   const out = r.content[0].text.trim();
   // 元テキストと同一、またはひらがな/カタカナが残っている場合は失敗
-  return (out && out !== text && !hasJapaneseKana(out)) ? out : null;
+  return (out && out !== text && !hasJapaneseSigns(out)) ? out : null;
 }
 
 async function translateDocBatch(texts, targetLang, client, glossary) {
@@ -404,7 +407,7 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     const resp = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001', max_tokens: 8192, temperature: 0,
+      model: DOC_MODEL, max_tokens: 8192, temperature: 0,
       messages: [{ role: 'user', content: prompt }],
     });
     // stop_reason が max_tokens = 出力が切断されている → 即フォールバック
@@ -449,21 +452,21 @@ async function translateDocTexts(texts, targetLang, client, glossary) {
     batch.forEach((oi, j) => {
       const t = translated[j];
       // 翻訳結果が存在し、元テキストと異なり、ひらがな/カタカナがない場合のみ採用
-      if (t && t !== texts[oi] && !hasJapaneseKana(t)) results[oi] = t;
-      else if (t && hasJapaneseKana(t)) {
+      if (t && t !== texts[oi] && !hasJapaneseSigns(t)) results[oi] = t;
+      else if (t && hasJapaneseSigns(t)) {
         console.warn(`[doc-texts] kana in result idx=${oi}: "${t.slice(0,40)}"`);
       }
     });
   }
 
   // 第2パス: ひらがな/カタカナが残っているか元テキストのままの項目を個別再試行
-  const retryIdxs = idxs.filter(i => hasJapaneseKana(results[i]) || results[i] === texts[i]);
+  const retryIdxs = idxs.filter(i => hasJapaneseSigns(results[i]) || results[i] === texts[i]);
   if (retryIdxs.length > 0) {
     console.warn(`[doc-texts] 2nd-pass retry for ${retryIdxs.length} items`);
     for (const i of retryIdxs) {
       try {
         const out = await translateOne(texts[i], targetLang, client);
-        if (out && !hasJapaneseKana(out)) results[i] = out;
+        if (out && !hasJapaneseSigns(out)) results[i] = out;
       } catch {}
     }
   }
