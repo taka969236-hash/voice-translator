@@ -551,7 +551,7 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
     const outputs = [];
     for (const lang of langs) {
       const code     = lang === 'Vietnamese' ? 'vi' : 'my';
-      const suffix   = `_${code}`;
+      const suffix   = lang === 'Vietnamese' ? '(ベトナム)' : '(ミャンマー)';
       const glossary = buildGlossary(req.sess.dictionary, [code]);
       let outBuf;
       if (ext === '.xlsx') {
