@@ -492,13 +492,18 @@ function extractExcelTexts(buf) {
 }
 
 function processExcel(buf, translations, origTexts) {
-  const wb = XLSX.read(buf, { type: 'buffer' });
+  // buf をコピーして読み込む（同一バッファを複数言語で使い回す場合の保護）
+  const wb = XLSX.read(Buffer.from(buf), { type: 'buffer' });
   const map = Object.fromEntries(origTexts.map((t, i) => [t, translations[i]]));
   wb.SheetNames.forEach(n => {
     const ws = wb.Sheets[n];
     Object.keys(ws).filter(k => !k.startsWith('!')).forEach(addr => {
       const c = ws[addr];
-      if (c.t === 's' && c.v && map[c.v]) { c.v = map[c.v]; delete c.r; delete c.h; }
+      if (c.t === 's' && c.v && map[c.v]) {
+        c.v = map[c.v];
+        // c.w（旧表示値）が残ると xlsx が整合性エラーを起こすため全て削除
+        delete c.r; delete c.h; delete c.w;
+      }
     });
   });
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
@@ -576,11 +581,12 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
       return res.send(buf);
     }
 
-    const zip = new AdmZip();
-    outputs.forEach(o => zip.addFile(o.name, o.buf));
+    // adm-zip は日本語ファイル名の UTF-8 エンコーディングが不安定なため PizZip を使用
+    const zip = new PizZip();
+    outputs.forEach(o => zip.file(o.name, o.buf));
     res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(stem + '_翻訳.zip')}`);
     res.setHeader('Content-Type', 'application/zip');
-    res.send(zip.toBuffer());
+    res.send(zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
 
   } catch (err) {
     console.error('[translate-doc]', err.message);
