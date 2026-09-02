@@ -127,7 +127,8 @@
     .lang-panel[data-lang="ja"] { border-top-color: #4338ca; }
     .lang-panel[data-lang="vi"] { border-top-color: #dc2626; }
     .lang-panel[data-lang="my"] { border-top-color: #b45309; }
-    #panel-vi, #panel-my { display: none; } /* 初期表示は日本語タブのみ */
+    .lang-panel[data-lang="en"] { border-top-color: #0369a1; }
+    #panel-vi, #panel-my, #panel-en { display: none; } /* 初期表示は日本語タブのみ */
 
     /* ── Panel Head ── */
     .panel-head { display: flex; align-items: center; gap: 8px; }
@@ -438,6 +439,7 @@
     <button class="float-lang-btn" data-lang="ja" onclick="setFloatLang(1,'ja')">🇯🇵</button>
     <button class="float-lang-btn active" data-lang="vi" onclick="setFloatLang(1,'vi')">🇻🇳</button>
     <button class="float-lang-btn" data-lang="my" onclick="setFloatLang(1,'my')">🇲🇲</button>
+    <button class="float-lang-btn" data-lang="en" onclick="setFloatLang(1,'en')">🇬🇧</button>
   </div>
   <div id="floatContent1" class="float-content"><div class="float-empty">翻訳するとここに表示されます</div></div>
   <div class="float-resize" data-n="1">⇲</div>
@@ -457,6 +459,7 @@
     <button class="float-lang-btn active" data-lang="ja" onclick="setFloatLang(2,'ja')">🇯🇵</button>
     <button class="float-lang-btn" data-lang="vi" onclick="setFloatLang(2,'vi')">🇻🇳</button>
     <button class="float-lang-btn" data-lang="my" onclick="setFloatLang(2,'my')">🇲🇲</button>
+    <button class="float-lang-btn" data-lang="en" onclick="setFloatLang(2,'en')">🇬🇧</button>
   </div>
   <div id="floatContent2" class="float-content"><div class="float-empty">翻訳するとここに表示されます</div></div>
   <div class="float-resize" data-n="2">⇲</div>
@@ -476,6 +479,7 @@
     <button class="float-lang-btn" data-lang="ja" onclick="setFloatLang(3,'ja')">🇯🇵</button>
     <button class="float-lang-btn" data-lang="vi" onclick="setFloatLang(3,'vi')">🇻🇳</button>
     <button class="float-lang-btn active" data-lang="my" onclick="setFloatLang(3,'my')">🇲🇲</button>
+    <button class="float-lang-btn" data-lang="en" onclick="setFloatLang(3,'en')">🇬🇧</button>
   </div>
   <div id="floatContent3" class="float-content"><div class="float-empty">翻訳するとここに表示されます</div></div>
   <div class="float-resize" data-n="3">⇲</div>
@@ -573,6 +577,7 @@
   <button class="section-tab active" id="langTabJa" onclick="switchLangPanel('ja')">🇯🇵 日本語</button>
   <button class="section-tab" id="langTabVi" onclick="switchLangPanel('vi')">🇻🇳 Tiếng Việt</button>
   <button class="section-tab" id="langTabMy" onclick="switchLangPanel('my')">🇲🇲 မြန်မာ</button>
+  <button class="section-tab" id="langTabEn" onclick="switchLangPanel('en')">🇬🇧 English</button>
 </div>
 
 <!-- ── 3-Language Panel Grid ── -->
@@ -631,6 +636,17 @@
       <div id="hist-ja-my" class="result-hist"></div>
       <div id="result-ja-my" class="result-text ph mm">ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်</div>
     </div>
+    <div class="result-row">
+      <div class="result-head">
+        <span class="result-flag">🇬🇧</span>
+        <span class="result-lang">英語</span>
+        <button class="speak-btn" id="spk-ja-en" onclick="speakResult('ja','en')" title="読み上げ">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+      </div>
+      <div id="hist-ja-en" class="result-hist"></div>
+      <div id="result-ja-en" class="result-text ph">Translation will appear here</div>
+    </div>
     <div id="error-ja" class="panel-error"></div>
   </div>
 
@@ -686,6 +702,17 @@
       </div>
       <div id="hist-vi-my" class="result-hist"></div>
       <div id="result-vi-my" class="result-text ph mm">ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်</div>
+    </div>
+    <div class="result-row">
+      <div class="result-head">
+        <span class="result-flag">🇬🇧</span>
+        <span class="result-lang">英語</span>
+        <button class="speak-btn" id="spk-vi-en" onclick="speakResult('vi','en')" title="読み上げ">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+      </div>
+      <div id="hist-vi-en" class="result-hist"></div>
+      <div id="result-vi-en" class="result-text ph">Translation will appear here</div>
     </div>
     <div id="error-vi" class="panel-error"></div>
   </div>
@@ -744,7 +771,85 @@
       <div id="hist-my-vi" class="result-hist"></div>
       <div id="result-my-vi" class="result-text ph">Bản dịch sẽ xuất hiện ở đây</div>
     </div>
+    <div class="result-row">
+      <div class="result-head">
+        <span class="result-flag">🇬🇧</span>
+        <span class="result-lang">英語</span>
+        <button class="speak-btn" id="spk-my-en" onclick="speakResult('my','en')" title="読み上げ">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+      </div>
+      <div id="hist-my-en" class="result-hist"></div>
+      <div id="result-my-en" class="result-text ph">Translation will appear here</div>
+    </div>
     <div id="error-my" class="panel-error"></div>
+  </div>
+
+  <!-- 🇬🇧 英語パネル -->
+  <div class="lang-panel" id="panel-en" data-lang="en">
+    <div class="panel-head">
+      <span class="panel-flag">🇬🇧</span>
+      <div class="panel-title">
+        <span class="panel-lang">English</span>
+        <span class="panel-sub">英語</span>
+      </div>
+      <span class="rec-dot" id="rec-dot-en"></span>
+    </div>
+
+    <div id="auto-en">
+      <div id="transcript-en" class="transcript-box">
+        <span class="ph">Start recording to see text here…</span>
+      </div>
+    </div>
+    <div id="manual-en" style="display:none">
+      <textarea id="edit-en" class="transcript-edit" placeholder="You can edit here after recording…"></textarea>
+      <div id="hint-en" class="interim-hint"></div>
+      <button class="btn-translate-sm" onclick="manualTranslate('en')">Translate</button>
+    </div>
+
+    <button class="btn-mic" id="mic-en" onclick="toggleRec('en')">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+      <span class="mic-dot"></span>
+      <span id="mic-label-en">Speak</span>
+    </button>
+
+    <hr class="panel-divider" />
+    <div class="panel-spinner" id="spinner-en"><span class="spinner"></span> <span id="spinner-label-en">翻訳中…</span></div>
+
+    <div class="result-row">
+      <div class="result-head">
+        <span class="result-flag">🇯🇵</span>
+        <span class="result-lang">日本語</span>
+        <button class="speak-btn" id="spk-en-ja" onclick="speakResult('en','ja')" title="読み上げ">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+      </div>
+      <div id="hist-en-ja" class="result-hist"></div>
+      <div id="result-en-ja" class="result-text ph">翻訳がここに表示されます</div>
+    </div>
+    <div class="result-row">
+      <div class="result-head">
+        <span class="result-flag">🇻🇳</span>
+        <span class="result-lang">ベトナム語</span>
+        <button class="speak-btn" id="spk-en-vi" onclick="speakResult('en','vi')" title="読み上げ">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+      </div>
+      <div id="hist-en-vi" class="result-hist"></div>
+      <div id="result-en-vi" class="result-text ph">Bản dịch sẽ xuất hiện ở đây</div>
+    </div>
+    <div class="result-row">
+      <div class="result-head">
+        <span class="result-flag">🇲🇲</span>
+        <span class="result-lang">ミャンマー語</span>
+        <button class="speak-btn" id="spk-en-my" onclick="speakResult('en','my')" title="読み上げ">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+      </div>
+      <div id="hist-en-my" class="result-hist"></div>
+      <div id="result-en-my" class="result-text ph mm">ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်</div>
+    </div>
+    <div id="error-en" class="panel-error"></div>
   </div>
 
 </div><!-- .panel-grid -->
@@ -781,6 +886,7 @@
     <div class="doc-lang-row">
       <label class="doc-lang-label"><input type="checkbox" id="docLangVi" checked> 🇻🇳 ベトナム語</label>
       <label class="doc-lang-label"><input type="checkbox" id="docLangMy" checked> 🇲🇲 ミャンマー語</label>
+      <label class="doc-lang-label"><input type="checkbox" id="docLangEn"> 🇬🇧 英語</label>
     </div>
     <button class="doc-translate-btn" id="docTranslateBtn">翻訳 開始</button>
     <div class="doc-loading" id="docLoading">
@@ -1111,21 +1217,24 @@ const LANGS = {
   ja: { recog:'ja-JP', ttsCode:'ja-JP', serverTTS:false },
   vi: { recog:'vi-VN', ttsCode:'vi-VN', serverTTS:false },
   my: { recog:'my-MM', ttsCode:'my',    serverTTS:true  },
+  en: { recog:'en-US', ttsCode:'en-US', serverTTS:false },
 };
-const ALL_LANGS  = ['ja','vi','my'];
-const TARGETS    = { ja:['vi','my'], vi:['ja','my'], my:['ja','vi'] };
-const LANG_FLAGS = { ja:'🇯🇵', vi:'🇻🇳', my:'🇲🇲' };
-const MIC_LABEL  = { ja:'話す',  vi:'Nói',       my:'ပြောဆိုမည်' };
-const STOP_LABEL = { ja:'停止',  vi:'Dừng lại',  my:'ရပ်မည်'      };
+const ALL_LANGS  = ['ja','vi','my','en'];
+const TARGETS    = { ja:['vi','my','en'], vi:['ja','my','en'], my:['ja','vi','en'], en:['ja','vi','my'] };
+const LANG_FLAGS = { ja:'🇯🇵', vi:'🇻🇳', my:'🇲🇲', en:'🇬🇧' };
+const MIC_LABEL  = { ja:'話す',  vi:'Nói',       my:'ပြောဆိုမည်', en:'Speak'  };
+const STOP_LABEL = { ja:'停止',  vi:'Dừng lại',  my:'ရပ်မည်',      en:'Stop'   };
 const PH_INPUT   = {
   ja: '録音を開始すると、ここにテキストが表示されます…',
   vi: 'Bắt đầu ghi âm để xem văn bản ở đây…',
   my: 'ဤနေရာတွင် စာသားပေါ်လာမည်…',
+  en: 'Start recording to see text here…',
 };
 const PH_REC = {
   ja: '録音中… 話しかけてください',
   vi: 'Đang ghi âm… Hãy nói',
   my: 'ဖမ်းနေသည်… ပြောဆိုပါ',
+  en: 'Recording… Please speak',
 };
 
 /* ═══════════════════════════════════════
@@ -1519,7 +1628,7 @@ async function doTranslate(lang, text) {
 
 function parsePartial(raw) {
   const result = {};
-  const re = /"(ja|vi|my)"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)/g;
+  const re = /"(ja|vi|my|en)"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)/g;
   let m;
   while ((m = re.exec(raw)) !== null) {
     result[m[1]] = m[2]
@@ -1599,7 +1708,7 @@ function renderHistory(entries) {
   list.innerHTML = entries.map(e => {
     const flag = LANG_FLAGS[e.from] || '';
     const time = new Date(e.timestamp).toLocaleTimeString('ja-JP');
-    const tgts = ['ja','vi','my']
+    const tgts = ['ja','vi','my','en']
       .filter(k => k !== e.from && e[k])
       .map(k => `<div class="hist-trans">${LANG_FLAGS[k]} <span class="${k==='my'?'mm':''}">${e[k]}</span></div>`)
       .join('');
@@ -1627,13 +1736,13 @@ function exportCSV() {
     .then(r => r.json())
     .then(data => {
       if (!data.length) { alert('履歴がありません'); return; }
-      const hdr = ['時刻','発話言語','原文','日本語訳','ベトナム語訳','ミャンマー語訳'];
-      const LNAMES = { ja:'日本語', vi:'ベトナム語', my:'ミャンマー語' };
+      const hdr = ['時刻','発話言語','原文','日本語訳','ベトナム語訳','ミャンマー語訳','英語訳'];
+      const LNAMES = { ja:'日本語', vi:'ベトナム語', my:'ミャンマー語', en:'英語' };
       const rows = data.map(e => [
         new Date(e.timestamp).toLocaleString('ja-JP'),
         LNAMES[e.from] || e.from,
         e.text,
-        e.ja || '', e.vi || '', e.my || '',
+        e.ja || '', e.vi || '', e.my || '', e.en || '',
       ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
       const csv = '﻿' + [hdr.join(','), ...rows].join('\r\n');
       const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
@@ -1782,7 +1891,7 @@ document.addEventListener('touchend', () => { draggingPanel = null; resizingPane
 const pipActive = new Set();   // PiPに表示中のパネル番号
 let currentPipWin = null;
 let pipFontSize = 1.05;
-const PIP_LANG_NAME = { ja: '🇯🇵 日本語', vi: '🇻🇳 ベトナム語', my: '🇲🇲 ミャンマー語' };
+const PIP_LANG_NAME = { ja: '🇯🇵 日本語', vi: '🇻🇳 ベトナム語', my: '🇲🇲 ミャンマー語', en: '🇬🇧 English' };
 
 const PIP_CSS = `
   *{box-sizing:border-box;margin:0;padding:0}
@@ -1904,6 +2013,7 @@ function renderPipPanels() {
             <button class="lb ${lang==='ja'?'active':''}" data-n="${pn}" data-l="ja">🇯🇵</button>
             <button class="lb ${lang==='vi'?'active':''}" data-n="${pn}" data-l="vi">🇻🇳</button>
             <button class="lb ${lang==='my'?'active':''}" data-n="${pn}" data-l="my">🇲🇲</button>
+            <button class="lb ${lang==='en'?'active':''}" data-n="${pn}" data-l="en">🇬🇧</button>
             <button class="rm" data-n="${pn}">✕</button>
           </div>
         </div>
@@ -1967,6 +2077,7 @@ function switchLangPanel(lang) {
   document.getElementById('langTabJa').classList.toggle('active', lang === 'ja');
   document.getElementById('langTabVi').classList.toggle('active', lang === 'vi');
   document.getElementById('langTabMy').classList.toggle('active', lang === 'my');
+  document.getElementById('langTabEn').classList.toggle('active', lang === 'en');
 }
 
 /* ── Document Translation ── */
@@ -2012,6 +2123,7 @@ let docSelectedFile = null;
     const langs = [];
     if (document.getElementById('docLangVi').checked) langs.push('Vietnamese');
     if (document.getElementById('docLangMy').checked) langs.push('Burmese');
+    if (document.getElementById('docLangEn').checked) langs.push('English');
     if (!langs.length) { showDocError('出力言語を選択してください'); return; }
 
     btn.disabled = true;

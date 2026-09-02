@@ -211,7 +211,7 @@ app.get('/api/tts', async (req, res) => {
 });
 
 /* ── 翻訳 API (Claude Sonnet + コンテキスト) ── */
-const LANG_NAMES = { ja: '日本語', vi: 'ベトナム語', my: 'ミャンマー語' };
+const LANG_NAMES = { ja: '日本語', vi: 'ベトナム語', my: 'ミャンマー語', en: 'English' };
 
 function buildGlossary(dictionary, targets) {
   if (!dictionary?.length) return '';
@@ -222,7 +222,7 @@ function buildGlossary(dictionary, targets) {
   return 'Glossary — always use these exact translations for these terms:\n' + lines.join('\n');
 }
 
-const TRANSLATION_SYSTEM = `You are a professional real-time interpreter specializing in Japanese, Vietnamese, and Burmese (Myanmar).
+const TRANSLATION_SYSTEM = `You are a professional real-time interpreter specializing in Japanese, Vietnamese, Burmese (Myanmar), and English.
 
 CRITICAL — NATURALNESS RULES:
 - Produce translations that sound 100% natural to a native speaker in daily conversation.
@@ -243,6 +243,11 @@ Burmese/Myanmar (my):
 - Match the register: casual workplace → conversational Burmese.
 - Use natural sentence-final particles (ပါ, ကွာ, နော် etc.) appropriate to the tone.
 
+English (en):
+- Use clear, natural English appropriate to the register of the source.
+- Prefer concise phrasing over literal word-for-word translation.
+- Match formality: casual Japanese/Vietnamese/Burmese → casual English.
+
 OUTPUT FORMAT: Respond ONLY with a single JSON object, no markdown, no explanation:
 {"LANG_CODE":"translation","LANG_CODE":"translation"}`;
 
@@ -251,7 +256,7 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   if (!text?.trim()) return res.status(400).json({ error: 'テキストが必要です' });
   if (!anthropic)    return res.status(503).json({ error: 'ANTHROPIC_API_KEY が未設定です' });
 
-  const ALL     = ['ja', 'vi', 'my'];
+  const ALL     = ['ja', 'vi', 'my', 'en'];
   const targets = ALL.filter(l => l !== from);
   const sess    = req.sess;
 
@@ -350,7 +355,7 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
 /* ── ドキュメント翻訳 ── */
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
-const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)' };
+const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)', English: 'English' };
 // ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
 const DOC_BATCH = 6;
 // 文書翻訳はSonnetで品質優先（Haikuはミャンマー語の精度不足・誤訳多発）
@@ -622,8 +627,8 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
   try {
     const outputs = [];
     for (const lang of langs) {
-      const code     = lang === 'Vietnamese' ? 'vi' : 'my';
-      const suffix   = lang === 'Vietnamese' ? '(ベトナム)' : '(ミャンマー)';
+      const code     = lang === 'Vietnamese' ? 'vi' : lang === 'English' ? 'en' : 'my';
+      const suffix   = lang === 'Vietnamese' ? '(ベトナム)' : lang === 'English' ? '(英語)' : '(ミャンマー)';
       const glossary = buildGlossary(req.sess.dictionary, [code]);
       let outBuf;
       if (ext === '.xlsx') {
