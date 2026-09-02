@@ -356,6 +356,16 @@ const DOC_BATCH = 6;
 // 文書翻訳はSonnetで品質優先（Haikuはミャンマー語の精度不足・誤訳多発）
 const DOC_MODEL = 'claude-sonnet-4-6';
 
+// 段落・セル先頭の列挙符号を抽出して本文と分離する
+// 対応パターン例: 1. / 1) / (1) / （1） / ① / Ⅰ. / ア. / ア) / （ア）
+const LIST_MARKER_RE = /^[\s　]*((?:[（(]?\d+[）).．、]|[（(][ァ-ヶぁ-ゟ][）)]|[ァ-ヶぁ-ゟ][.．)）、]|[①-⑳㈠-㈩][.．]?|[Ⅰ-ⅻ][.．])[\s　]*)/;
+function extractListMarker(text) {
+  const m = text.match(LIST_MARKER_RE);
+  if (!m) return null;
+  const body = text.slice(m[0].length);
+  return body.trim() ? { marker: m[0], body } : null; // 本文がない行はスキップ
+}
+
 // 数値・日付・時刻・アイウエオ列挙符号のみのテキストは翻訳不要（そのまま保持）
 function isNumericOnly(text) {
   const t = text.trim();
@@ -385,7 +395,7 @@ async function translateOne(text, targetLang, client) {
   const r = await client.messages.create({
     model: DOC_MODEL, max_tokens: 2048, temperature: 0,
     messages: [{ role: 'user', content:
-      `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a kana list marker (ア, イ, ウ, etc.), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
+      `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a list marker (e.g. "1.", "ア."), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
   });
   const out = r.content[0].text.trim();
   // 元テキストと同一、またはひらがな/カタカナが残っている場合は失敗
@@ -398,7 +408,7 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
   const prompt = [
     `Translate the following Japanese texts to ${langName}.`,
     `CRITICAL: Output ONLY in ${langName}. Do NOT include any Japanese hiragana, katakana, or kanji in your translations.`,
-    `EXCEPTION: If a text starts with a Japanese kana list marker (e.g. ア, イ, ウ, エ, possibly with punctuation like ア. or （ア）), keep that marker exactly as-is and translate only the remaining text.`,
+    `EXCEPTION: If a text starts with a list marker (numbers like "1.", "(2)", or kana like "ア.", "（イ）"), keep that marker exactly as-is and translate only the following text.`,
     glossary,
     `Return ONLY a JSON array of exactly ${texts.length} translated strings in the same order. No explanation, no markdown.`,
     `Input: ${JSON.stringify(texts)}`,
@@ -617,19 +627,25 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
       const glossary = buildGlossary(req.sess.dictionary, [code]);
       let outBuf;
       if (ext === '.xlsx') {
-        const texts = extractExcelTexts(req.file.buffer);
-        const translated = await translateDocTexts(texts, lang, anthropic, glossary);
-        outBuf = processExcel(req.file.buffer, translated, texts);
+        const texts  = extractExcelTexts(req.file.buffer);
+        const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
+        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary);
+        const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
+        outBuf = processExcel(req.file.buffer, final, texts);
       } else if (ext === '.pptx') {
-        const info = extractPptxTexts(req.file.buffer);
-        const texts = info.paras.map(p => p.text);
-        const translated = await translateDocTexts(texts, lang, anthropic, glossary);
-        outBuf = rebuildPptx(req.file.buffer, translated, info);
+        const info   = extractPptxTexts(req.file.buffer);
+        const texts  = info.paras.map(p => p.text);
+        const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
+        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary);
+        const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
+        outBuf = rebuildPptx(req.file.buffer, final, info);
       } else {
-        const info = extractDocxTexts(req.file.buffer);
-        const texts = info.paras.map(p => p.text);
-        const translated = await translateDocTexts(texts, lang, anthropic, glossary);
-        outBuf = rebuildDocx(req.file.buffer, translated, info);
+        const info   = extractDocxTexts(req.file.buffer);
+        const texts  = info.paras.map(p => p.text);
+        const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
+        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary);
+        const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
+        outBuf = rebuildDocx(req.file.buffer, final, info);
       }
       outputs.push({ name: `${stem}${suffix}${ext}`, buf: outBuf });
     }
