@@ -771,9 +771,9 @@
     <div class="doc-drop" id="docDrop">
       <div class="doc-icon">📄</div>
       <div>ここにファイルをドロップ</div>
-      <div class="doc-hint">または クリックして選択 (.docx / .xlsx)</div>
+      <div class="doc-hint">または クリックして選択 (.docx / .xlsx / .pptx)</div>
     </div>
-    <input type="file" id="docFileInput" accept=".docx,.xlsx" hidden>
+    <input type="file" id="docFileInput" accept=".docx,.xlsx,.pptx" hidden>
     <div class="doc-file-name" id="docFileName">
       <span>📎</span><span id="docFileNameText"></span>
       <span class="doc-remove" id="docRemove">✕</span>
@@ -791,7 +791,7 @@
     <div class="doc-result" id="docResult">✅ 翻訳完了！ファイルのダウンロードが始まります。</div>
     <div class="doc-error"  id="docError"></div>
   </div>
-  <p class="footer-note" style="margin-top:8px">翻訳エンジン: Claude AI (Haiku) · Excel (.xlsx) / Word (.docx) 対応 · 書式保持</p>
+  <p class="footer-note" style="margin-top:8px">翻訳エンジン: Claude AI (Sonnet) · Excel (.xlsx) / Word (.docx) / PowerPoint (.pptx) 対応 · 書式保持</p>
 </div>
 
 <script>
@@ -1993,7 +1993,7 @@ let docSelectedFile = null;
   function setDocFile(file) {
     if (!file) return;
     const ext = file.name.split('.').pop().toLowerCase();
-    if (!['docx','xlsx'].includes(ext)) { showDocError('.docx または .xlsx を選択してください'); return; }
+    if (!['docx','xlsx','pptx'].includes(ext)) { showDocError('.docx、.xlsx または .pptx を選択してください'); return; }
     docSelectedFile = file;
     nameText.textContent = file.name;
     nameBox.style.display = 'flex';

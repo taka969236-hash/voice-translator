@@ -509,6 +509,52 @@ function processExcel(buf, translations, origTexts) {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
+function extractPptxTexts(buf) {
+  const zip = new PizZip(buf);
+  const slides = Object.keys(zip.files)
+    .filter(name => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+    .sort((a, b) => parseInt(a.match(/\d+/)[0]) - parseInt(b.match(/\d+/)[0]));
+  const slideXmls = {};
+  const paras = [];
+  slides.forEach(slideName => {
+    const xml = zip.file(slideName).asText();
+    slideXmls[slideName] = xml;
+    const re = /<a:p(?:\s[^>]*)?>[\s\S]*?<\/a:p>/g;
+    let m;
+    while ((m = re.exec(xml)) !== null) {
+      const txt = [...m[0].matchAll(/<a:t(?:[^>]*)?>([^<]*)<\/a:t>/g)].map(r => r[1]).join('');
+      if (txt.trim()) paras.push({ slideName, text: txt.trim(), index: m.index, length: m[0].length });
+    }
+  });
+  return { slides, slideXmls, paras };
+}
+
+function rebuildPptx(buf, translations, { slides, slideXmls, paras }) {
+  const zip = new PizZip(buf);
+  const bySlide = {};
+  paras.forEach((p, i) => { (bySlide[p.slideName] ??= []).push({ ...p, ti: i }); });
+  slides.forEach(slideName => {
+    const sParas = (bySlide[slideName] ?? []).sort((a, b) => b.index - a.index);
+    if (!sParas.length) return;
+    let newXml = slideXmls[slideName];
+    for (const para of sParas) {
+      const trans = translations[para.ti];
+      if (!trans || trans === para.text) continue;
+      let replaced = false;
+      const newPara = newXml.slice(para.index, para.index + para.length).replace(
+        /<a:t([^>]*)>([^<]*)<\/a:t>/g,
+        (_, attrs) => {
+          if (!replaced) { replaced = true; return `<a:t${attrs}>${escXml(trans)}</a:t>`; }
+          return `<a:t${attrs}></a:t>`;
+        }
+      );
+      newXml = newXml.slice(0, para.index) + newPara + newXml.slice(para.index + para.length);
+    }
+    zip.file(slideName, newXml);
+  });
+  return zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+}
+
 function extractDocxTexts(buf) {
   const zip = new PizZip(buf);
   const xml = zip.file('word/document.xml').asText();
@@ -549,8 +595,8 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
 
   const ext  = path.extname(req.file.originalname).toLowerCase();
   const stem = path.basename(req.file.originalname, ext);
-  if (!['.xlsx', '.docx'].includes(ext))
-    return res.status(400).json({ error: '.xlsx または .docx のみ対応しています' });
+  if (!['.xlsx', '.docx', '.pptx'].includes(ext))
+    return res.status(400).json({ error: '.xlsx、.docx または .pptx のみ対応しています' });
 
   try {
     const outputs = [];
@@ -563,6 +609,11 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
         const texts = extractExcelTexts(req.file.buffer);
         const translated = await translateDocTexts(texts, lang, anthropic, glossary);
         outBuf = processExcel(req.file.buffer, translated, texts);
+      } else if (ext === '.pptx') {
+        const info = extractPptxTexts(req.file.buffer);
+        const texts = info.paras.map(p => p.text);
+        const translated = await translateDocTexts(texts, lang, anthropic, glossary);
+        outBuf = rebuildPptx(req.file.buffer, translated, info);
       } else {
         const info = extractDocxTexts(req.file.buffer);
         const texts = info.paras.map(p => p.text);
@@ -575,9 +626,12 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
     if (outputs.length === 1) {
       const { name, buf } = outputs[0];
       res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
-      res.setHeader('Content-Type', ext === '.xlsx'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      const CTYPES = {
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      };
+      res.setHeader('Content-Type', CTYPES[ext] || 'application/octet-stream');
       return res.send(buf);
     }
 
