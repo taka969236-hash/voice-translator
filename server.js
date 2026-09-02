@@ -593,8 +593,19 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
   const langs = [req.body.langs].flat().filter(Boolean);
   if (!langs.length) return res.status(400).json({ error: '言語を選択してください' });
 
-  const ext  = path.extname(req.file.originalname).toLowerCase();
-  const stem = path.basename(req.file.originalname, ext);
+  // multer は HTTP マルチパートのファイル名をそのまま渡す。
+  // ブラウザが UTF-8 バイト列を latin1 として送る場合があるため、UTF-8 として再デコードする。
+  // 既に正しい UTF-8 文字列の場合は変換後も同じ文字列になるため二重変換の問題は生じない。
+  const rawName     = req.file.originalname;
+  const decodedName = (() => {
+    try {
+      const attempt = Buffer.from(rawName, 'latin1').toString('utf8');
+      // 再デコード後に置換文字(U+FFFD)が含まれていれば元の文字列を優先
+      return attempt.includes('�') ? rawName : attempt;
+    } catch { return rawName; }
+  })();
+  const ext  = path.extname(decodedName).toLowerCase();
+  const stem = path.basename(decodedName, ext);
   if (!['.xlsx', '.docx', '.pptx'].includes(ext))
     return res.status(400).json({ error: '.xlsx、.docx または .pptx のみ対応しています' });
 
