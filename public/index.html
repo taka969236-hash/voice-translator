@@ -744,7 +744,7 @@
       <span class="mic-dot"></span>
       <span id="mic-label-my" style="font-family:'Noto Sans Myanmar',sans-serif;">ပြောဆိုမည်</span>
     </button>
-    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">⚠️ 音声入力: Android Chrome 推奨（PC版Chromeでは非対応の場合あり）</div>
+    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">⚠️ 音声入力: Android Chrome 推奨（iPhone・PC版Chromeは非対応→手動入力可）</div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> <span id="spinner-label-my">翻訳中…</span></div>
@@ -1286,6 +1286,13 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 function toggleRec(lang) { st[lang].isRecording ? stopRec(lang) : startRec(lang); }
 
 function startRec(lang) {
+  // iOSではmy-MM音声認識はWebKit制限で非対応 → マイクを押しても手動モードへ誘導
+  if (isIOS && lang === 'my') {
+    showErr(lang, 'iPhoneではミャンマー語の音声認識は非対応です。手動モードでテキストを入力して翻訳できます。');
+    if (mode === 'auto') setMode('manual');
+    return;
+  }
+
   ALL_LANGS.forEach(l => { if (l!==lang && st[l].isRecording) stopRec(l); });
   hideErr(lang);
 
@@ -2083,6 +2090,8 @@ function switchLangPanel(lang) {
   document.getElementById('langTabVi').classList.toggle('active', lang === 'vi');
   document.getElementById('langTabMy').classList.toggle('active', lang === 'my');
   document.getElementById('langTabEn').classList.toggle('active', lang === 'en');
+  // iOSでミャンマータブへ切替時: 音声認識非対応のため手動モードへ自動切替
+  if (isIOS && lang === 'my' && mode === 'auto') setMode('manual');
 }
 
 /* ── Document Translation ── */
