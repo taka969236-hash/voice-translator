@@ -744,7 +744,7 @@
       <span class="mic-dot"></span>
       <span id="mic-label-my" style="font-family:'Noto Sans Myanmar',sans-serif;">ပြောဆိုမည်</span>
     </button>
-    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">⚠️ 音声入力: Android Chrome 推奨（iPhone・PC版Chromeは非対応→手動入力可）</div>
+    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">🎙 Whisper AI 音声認識 — iPhone / Android / PC 全対応</div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> <span id="spinner-label-my">翻訳中…</span></div>
@@ -1286,12 +1286,8 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 function toggleRec(lang) { st[lang].isRecording ? stopRec(lang) : startRec(lang); }
 
 function startRec(lang) {
-  // iOSではmy-MM音声認識はWebKit制限で非対応 → マイクを押しても手動モードへ誘導
-  if (isIOS && lang === 'my') {
-    showErr(lang, 'iPhoneではミャンマー語の音声認識は非対応です。手動モードでテキストを入力して翻訳できます。');
-    if (mode === 'auto') setMode('manual');
-    return;
-  }
+  // ミャンマー語はOpenAI Whisper API経由 (iPhone/PC含む全端末対応)
+  if (lang === 'my') { startWhisperRec(lang); return; }
 
   ALL_LANGS.forEach(l => { if (l!==lang && st[l].isRecording) stopRec(l); });
   hideErr(lang);
@@ -1329,6 +1325,15 @@ function stopRec(lang) {
   clearTimeout(s.debounceTimer);
   clearTimeout(s.escalateTimer);
   setRecDot(lang, 'normal');
+  // ミャンマー語: MediaRecorderを止める (onstopでWhisper送信)
+  if (s.mediaRecorder) {
+    if (s.mediaRecorder.state !== 'inactive') s.mediaRecorder.stop();
+    s.mediaRecorder = null;
+    document.getElementById(`panel-${lang}`).classList.remove('active');
+    document.getElementById(`mic-${lang}`).classList.remove('recording');
+    document.getElementById(`mic-label-${lang}`).textContent = MIC_LABEL[lang];
+    return;
+  }
   if (s.recognition) { s.recognition.stop(); s.recognition=null; }
   document.getElementById(`panel-${lang}`).classList.remove('active');
   document.getElementById(`mic-${lang}`).classList.remove('recording');
@@ -1361,6 +1366,115 @@ function setRecDot(lang, state) {
   dot.classList.remove('reconnecting', 'stuck');
   if (state === 'reconnecting') dot.classList.add('reconnecting');
   else if (state === 'stuck') dot.classList.add('stuck');
+}
+
+/* ═══════════════════════════════════════
+   Whisper STT (ミャンマー語: iPhone/Android/PC全対応)
+═══════════════════════════════════════ */
+function startWhisperRec(lang) {
+  const s = st[lang];
+  ALL_LANGS.forEach(l => { if (l !== lang && st[l].isRecording) stopRec(l); });
+  hideErr(lang);
+  s.finalText = ''; s.lastTranslated = '';
+  TARGETS[lang].forEach(tgt => {
+    const el = document.getElementById(`result-${lang}-${tgt}`);
+    el.className = 'result-text ph' + (tgt === 'my' ? ' mm' : '');
+    el.textContent = tgt === 'my' ? 'ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်'
+                   : tgt === 'vi' ? 'Bản dịch sẽ xuất hiện ở đây' : '翻訳がここに表示されます';
+  });
+  if (mode === 'auto') {
+    document.getElementById(`transcript-${lang}`).innerHTML = `<span class="ph">${PH_REC[lang]}</span>`;
+  } else {
+    document.getElementById(`edit-${lang}`).value = '';
+    document.getElementById(`hint-${lang}`).textContent = '';
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showErr(lang, 'このブラウザはマイク録音に対応していません。');
+    return;
+  }
+
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+                   : MediaRecorder.isTypeSupported('audio/mp4')  ? 'audio/mp4' : '';
+    s.myChunks = [];
+    s.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+    s.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) s.myChunks.push(e.data); };
+    s.mediaRecorder.onstop = () => {
+      stream.getTracks().forEach(t => t.stop());
+      sendWhisperAudio(lang, s.myChunks, mimeType || 'audio/webm');
+    };
+    s.mediaRecorder.start();
+    s.isRecording = true;
+    setRecDot(lang, 'normal');
+    document.getElementById(`panel-${lang}`).classList.add('active');
+    document.getElementById(`mic-${lang}`).classList.add('recording');
+    document.getElementById(`mic-label-${lang}`).textContent = STOP_LABEL[lang];
+  }).catch(err => {
+    const msg = (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError')
+      ? 'マイクへのアクセスが許可されていません。ブラウザのアドレスバー付近のマイクアイコンからサイト設定を開き、マイクを「許可」に変更してください。'
+      : 'マイクにアクセスできません: ' + err.message;
+    showErr(lang, msg);
+  });
+}
+
+async function sendWhisperAudio(lang, chunks, mimeType) {
+  const blob = new Blob(chunks, { type: mimeType });
+  const spinner = document.getElementById(`spinner-${lang}`);
+  const spinnerLabel = document.getElementById(`spinner-label-${lang}`);
+
+  if (blob.size < 500) {
+    showErr(lang, '録音が短すぎます。もう少し長く話してください。');
+    return;
+  }
+
+  spinner.classList.add('show');
+  spinnerLabel.textContent = '文字起こし中…';
+  if (mode === 'auto') {
+    document.getElementById(`transcript-${lang}`).innerHTML = '<span class="ph">文字起こし中…</span>';
+  }
+
+  try {
+    const ext = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    const fd = new FormData();
+    fd.append('audio', blob, `audio.${ext}`);
+    fd.append('lang', 'my');
+
+    const resp = await fetch('/api/stt', {
+      method: 'POST', body: fd,
+      headers: { 'X-Session-Token': sessionToken },
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.error || `エラー (${resp.status})`);
+    }
+    const { text } = await resp.json();
+
+    if (!text || !text.trim()) {
+      showErr(lang, '音声が認識できませんでした。もう一度お試しください。');
+      spinner.classList.remove('show');
+      if (mode === 'auto') document.getElementById(`transcript-${lang}`).innerHTML = `<span class="ph">${PH_INPUT[lang]}</span>`;
+      return;
+    }
+
+    const s = st[lang];
+    s.finalText = text.trim();
+    spinner.classList.remove('show');
+
+    if (mode === 'auto') {
+      renderTranscript(lang, s.finalText, '');
+      doTranslate(lang, s.finalText);
+    } else {
+      const editEl = document.getElementById(`edit-${lang}`);
+      editEl.value = s.finalText;
+      editEl.scrollTop = editEl.scrollHeight;
+      document.getElementById(`hint-${lang}`).textContent = '✏️ 修正後に翻訳ボタンを押してください';
+    }
+  } catch (err) {
+    showErr(lang, '文字起こしエラー: ' + err.message);
+    spinner.classList.remove('show');
+    if (mode === 'auto') document.getElementById(`transcript-${lang}`).innerHTML = `<span class="ph">${PH_INPUT[lang]}</span>`;
+  }
 }
 
 function initRecog(lang) {
@@ -2090,8 +2204,6 @@ function switchLangPanel(lang) {
   document.getElementById('langTabVi').classList.toggle('active', lang === 'vi');
   document.getElementById('langTabMy').classList.toggle('active', lang === 'my');
   document.getElementById('langTabEn').classList.toggle('active', lang === 'en');
-  // iOSでミャンマータブへ切替時: 音声認識非対応のため手動モードへ自動切替
-  if (isIOS && lang === 'my' && mode === 'auto') setMode('manual');
 }
 
 /* ── Document Translation ── */

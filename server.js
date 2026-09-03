@@ -680,6 +680,42 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
   }
 });
 
+/* ── 音声文字起こし (OpenAI Whisper) ── */
+const sttUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+app.post('/api/stt', requireSession, sttUpload.single('audio'), async (req, res) => {
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'OPENAI_API_KEY が未設定です' });
+  if (!req.file) return res.status(400).json({ error: '音声ファイルが必要です' });
+
+  const lang = req.body.lang || 'my';
+  const ext  = req.file.mimetype.includes('mp4') ? 'mp4' : 'webm';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', new Blob([req.file.buffer], { type: req.file.mimetype }), `audio.${ext}`);
+    formData.append('model', 'whisper-1');
+    formData.append('language', lang);
+
+    const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Whisper API error ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    console.log(`[stt] lang=${lang} chars=${data.text?.length ?? 0}`);
+    res.json({ text: data.text || '' });
+  } catch (err) {
+    console.error('[stt]', err.message);
+    res.status(500).json({ error: '文字起こしエラー: ' + err.message });
+  }
+});
+
 /* ── 翻訳履歴取得 ── */
 app.get('/api/history', requireSession, (req, res) => {
   res.json(req.sess.history);
