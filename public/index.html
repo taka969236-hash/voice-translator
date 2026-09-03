@@ -744,7 +744,7 @@
       <span class="mic-dot"></span>
       <span id="mic-label-my" style="font-family:'Noto Sans Myanmar',sans-serif;">ပြောဆိုမည်</span>
     </button>
-    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">🤖 Whisper (ブラウザ内処理・初回150MB)</div>
+    <div style="font-size:0.7rem;color:var(--muted);text-align:center;">⚠️ 音声入力: Android Chrome 推奨（PC版Chromeでは非対応の場合あり）</div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> <span id="spinner-label-my">翻訳中…</span></div>
@@ -1337,8 +1337,9 @@ function stopRec(lang) {
 
 const RECOG_ERROR_MSG = {
   'not-allowed': 'マイクへのアクセスが許可されていません。ブラウザのアドレスバー付近のマイクアイコン（または鍵マーク）からサイトの設定を開き、マイクを「許可」に変更してページを再読み込みしてください。',
-  'service-not-allowed': 'マイクへのアクセスが許可されていません。ブラウザのアドレスバー付近のマイクアイコン（または鍵マーク）からサイトの設定を開き、マイクを「許可」に変更してページを再読み込みしてください。',
+  'service-not-allowed': 'マイクへのアクセスが拒否されたか、この言語の音声認識がこのブラウザ・OSで非対応です。ミャンマー語入力はAndroid Chromeをご利用ください。PC版Chromeでは音声認識に非対応の場合があります。',
   'audio-capture': 'マイクが見つかりません。マイクが接続されているか、他のアプリで使用中でないか確認してください。',
+  'language-not-supported': 'この言語の音声認識はご利用のブラウザ・OSで対応していません。ミャンマー語入力はAndroid Chromeをご利用ください。手動モードでテキスト入力は引き続きご利用いただけます。',
 };
 
 /* 接続状態ドット: 🔵 通常 → 🟡 再接続中 → 🔴 再接続が長引いている(目安8秒) */
@@ -1401,6 +1402,10 @@ function initRecog(lang) {
     if (e.error==='no-speech'||e.error==='aborted'||e.error==='network') return;
     showErr(lang, RECOG_ERROR_MSG[e.error] || ('音声認識エラー: '+e.error));
     stopRec(lang);
+    // ミャンマー語で言語非対応エラー → 自動的に手動モードへ切替えて入力継続を促す
+    if (lang==='my' && (e.error==='language-not-supported'||e.error==='service-not-allowed')) {
+      if (mode==='auto') setMode('manual');
+    }
   };
 
   recog.onstart = () => {
