@@ -688,27 +688,47 @@ app.post('/api/stt', requireSession, sttUpload.single('audio'), async (req, res)
   if (!req.file) return res.status(400).json({ error: '音声ファイルが必要です' });
 
   const lang = req.body.lang || 'my';
-  const ext  = req.file.mimetype.includes('mp4') ? 'mp4' : 'webm';
+  const mime = req.file.mimetype || 'audio/webm';
+  const ext  = mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'webm';
 
   try {
-    const formData = new FormData();
-    formData.append('file', new Blob([req.file.buffer], { type: req.file.mimetype }), `audio.${ext}`);
-    formData.append('model', 'whisper-1');
-    formData.append('language', lang);
+    // Node.js組み込みFormData/Blobはバージョンによって動作が不安定なため
+    // multipart/form-dataを手動構築してOpenAI Whisper APIへ直接送信する
+    const boundary = `----WhisperBoundary${Date.now()}`;
+    const CRLF = '\r\n';
+    const header = Buffer.from(
+      `--${boundary}${CRLF}` +
+      `Content-Disposition: form-data; name="model"${CRLF}${CRLF}` +
+      `whisper-1${CRLF}` +
+      `--${boundary}${CRLF}` +
+      `Content-Disposition: form-data; name="language"${CRLF}${CRLF}` +
+      `${lang}${CRLF}` +
+      `--${boundary}${CRLF}` +
+      `Content-Disposition: form-data; name="file"; filename="audio.${ext}"${CRLF}` +
+      `Content-Type: ${mime}${CRLF}${CRLF}`
+    );
+    const footer = Buffer.from(`${CRLF}--${boundary}--${CRLF}`);
+    const body   = Buffer.concat([header, req.file.buffer, footer]);
 
     const resp = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${process.env.OPENAI_API_KEY}` },
-      body: formData,
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body,
     });
 
+    const rawText = await resp.text();
     if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.error?.message || `Whisper API error ${resp.status}`);
+      let msg = `Whisper API error ${resp.status}`;
+      try { msg = JSON.parse(rawText).error?.message || msg; } catch {}
+      console.error(`[stt] api error ${resp.status}: ${rawText.slice(0, 200)}`);
+      throw new Error(msg);
     }
 
-    const data = await resp.json();
-    console.log(`[stt] lang=${lang} chars=${data.text?.length ?? 0}`);
+    const data = JSON.parse(rawText);
+    console.log(`[stt] lang=${lang} ext=${ext} chars=${data.text?.length ?? 0}`);
     res.json({ text: data.text || '' });
   } catch (err) {
     console.error('[stt]', err.message);
