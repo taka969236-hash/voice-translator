@@ -16,6 +16,11 @@ const AdmZip = require('adm-zip');
 /* ── 本番(Render) か ローカルか ── */
 const IS_PROD = !!(process.env.RENDER || process.env.NODE_ENV === 'production');
 
+/* ── 環境変数チェック（起動ログ） ── */
+console.log('[env] ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? '✓ set' : '✗ NOT SET');
+console.log('[env] OPENAI_API_KEY:   ', process.env.OPENAI_API_KEY    ? '✓ set' : '✗ NOT SET');
+console.log('[env] IS_PROD:', IS_PROD);
+
 /* ── Claude API ── */
 const anthropic = process.env.ANTHROPIC_API_KEY
   ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
