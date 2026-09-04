@@ -1906,6 +1906,8 @@ function setFloatLang(n, lang) {
   document.querySelectorAll('#floatPanel' + n + ' .float-lang-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.lang === lang);
   });
+  pipHistory[n] = []; // 言語変更時は履歴リセット
+  refreshPipContent(n);
 }
 
 function floatFont(n, dir) {
@@ -1926,6 +1928,12 @@ function updateFloat(fromLang, translations) {
       const text = translations[st.lang];
       if (text && text !== '—') {
         el.innerHTML = `<div class="float-row${st.lang === 'my' ? ' mm' : ''}">${text}</div>`;
+        // PiP履歴に追記（同一テキスト連続重複は除外）
+        const hist = pipHistory[n];
+        if (hist.length === 0 || hist[hist.length - 1].text !== text) {
+          hist.push({ text, lang: st.lang });
+          if (hist.length > PIP_MAX_HIST) hist.shift();
+        }
       } else {
         el.innerHTML = '<div class="float-empty">—</div>';
       }
@@ -2018,6 +2026,8 @@ const pipActive = new Set();   // PiPに表示中のパネル番号
 let currentPipWin = null;
 let pipFontSize = 1.05;
 const PIP_LANG_NAME = { ja: '🇯🇵 日本語', vi: '🇻🇳 ベトナム語', my: '🇲🇲 ミャンマー語', en: '🇬🇧 English' };
+const pipHistory = { 1: [], 2: [], 3: [] }; // PiP窓ごとの翻訳履歴
+const PIP_MAX_HIST = 40;
 
 const PIP_CSS = `
   *{box-sizing:border-box;margin:0;padding:0}
@@ -2151,6 +2161,9 @@ function renderPipPanels() {
       </div>`;
   }).join('');
 
+  // innerHTML設定後に履歴を反映
+  [...pipActive].forEach(pn => refreshPipContent(pn));
+
   // 言語ボタン（クロージャでメイン関数を呼ぶ）
   container.querySelectorAll('.lb').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2171,9 +2184,26 @@ function renderPipPanels() {
 
 function refreshPipContent(n) {
   if (!currentPipWin || currentPipWin.closed || !pipActive.has(n)) return;
-  const src  = document.getElementById('floatContent' + n);
   const dest = currentPipWin.document.getElementById('pip-ct-' + n);
-  if (src && dest) dest.innerHTML = src.innerHTML;
+  if (!dest) return;
+
+  const hist = pipHistory[n];
+  const src  = document.getElementById('floatContent' + n);
+  const isSpeaking = src && src.querySelector('.float-speaking');
+
+  if (hist.length === 0) {
+    dest.innerHTML = src ? src.innerHTML : '';
+  } else {
+    // 過去履歴を薄く→最新を全輝度で積み上げ表示
+    dest.innerHTML = hist.map((item, i) => {
+      const isLatest = (i === hist.length - 1);
+      const opacity  = isLatest ? 1.0 : (0.28 + (i / (hist.length - 1)) * 0.60).toFixed(2);
+      const sep      = (!isLatest) ? 'border-bottom:1px solid rgba(255,255,255,.07);padding-bottom:5px;margin-bottom:5px;' : '';
+      const mmClass  = item.lang === 'my' ? ' mm' : '';
+      return `<div class="float-row${mmClass}" style="opacity:${opacity};${sep}">${item.text}</div>`;
+    }).join('') + (isSpeaking ? '<div class="float-speaking" style="margin-top:6px">🎙 発話中…</div>' : '');
+  }
+  dest.scrollTop = dest.scrollHeight;
 }
 
 function updatePipBtn(n, active) {
