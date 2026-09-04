@@ -701,13 +701,11 @@ app.post('/api/stt', requireSession, sttUpload.single('audio'), async (req, res)
     // multipart/form-dataを手動構築してOpenAI Whisper APIへ直接送信する
     const boundary = `----WhisperBoundary${Date.now()}`;
     const CRLF = '\r\n';
+    // languageパラメータは省略 → Whisperが自動検出（my コードはAPIが拒否するため）
     const header = Buffer.from(
       `--${boundary}${CRLF}` +
       `Content-Disposition: form-data; name="model"${CRLF}${CRLF}` +
       `whisper-1${CRLF}` +
-      `--${boundary}${CRLF}` +
-      `Content-Disposition: form-data; name="language"${CRLF}${CRLF}` +
-      `${lang}${CRLF}` +
       `--${boundary}${CRLF}` +
       `Content-Disposition: form-data; name="file"; filename="audio.${ext}"${CRLF}` +
       `Content-Type: ${mime}${CRLF}${CRLF}`
