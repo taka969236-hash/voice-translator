@@ -2084,18 +2084,20 @@ async function createPipWindow() {
     pipWin.document.body.innerHTML = `
       <div id="pip-toolbar">
         <span>翻訳ウィンドウ（最前面）</span>
-        <button class="sz" data-sz="-1">A−</button>
-        <button class="sz" data-sz="+1">A+</button>
+        <button class="sz" id="pip-sz-minus">A−</button>
+        <button class="sz" id="pip-sz-plus">A+</button>
       </div>
       <div id="pip-panels"></div>
     `;
 
-    pipWin.document.querySelectorAll('.sz').forEach(btn => {
-      btn.addEventListener('click', () => {
-        pipFontSize = Math.min(2.4, Math.max(0.7, pipFontSize + parseInt(btn.dataset.sz) * 0.15));
-        pipWin.document.querySelectorAll('.pip-ct').forEach(el => el.style.fontSize = pipFontSize + 'rem');
-      });
-    });
+    pipWin.document.getElementById('pip-sz-minus').onclick = () => {
+      pipFontSize = Math.max(0.7, pipFontSize - 0.15);
+      pipWin.document.querySelectorAll('.pip-ct').forEach(el => el.style.fontSize = pipFontSize + 'rem');
+    };
+    pipWin.document.getElementById('pip-sz-plus').onclick = () => {
+      pipFontSize = Math.min(2.4, pipFontSize + 0.15);
+      pipWin.document.querySelectorAll('.pip-ct').forEach(el => el.style.fontSize = pipFontSize + 'rem');
+    };
 
     pipWin.addEventListener('pagehide', () => {
       currentPipWin = null;
