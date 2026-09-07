@@ -1394,15 +1394,26 @@ function startWhisperRec(lang) {
     return;
   }
 
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+  // TTS再生中なら停止（録音中にスピーカー音を拾わないよう）
+  if (window.speechSynthesis?.speaking) speechSynthesis.cancel();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+
+  // エコーキャンセル・ノイズ抑制を有効化してマイク取得
+  const audioConstraints = {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  };
+  navigator.mediaDevices.getUserMedia({ audio: audioConstraints }).then(stream => {
     const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
                    : MediaRecorder.isTypeSupported('audio/mp4')  ? 'audio/mp4' : '';
     s.myChunks = [];
+    s.recStartTime = Date.now(); // 録音開始時刻を記録
     s.mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
     s.mediaRecorder.ondataavailable = e => { if (e.data.size > 0) s.myChunks.push(e.data); };
     s.mediaRecorder.onstop = () => {
       stream.getTracks().forEach(t => t.stop());
-      sendWhisperAudio(lang, s.myChunks, mimeType || 'audio/webm');
+      sendWhisperAudio(lang, s.myChunks, mimeType || 'audio/webm', Date.now() - (s.recStartTime || 0));
     };
     s.mediaRecorder.start();
     s.isRecording = true;
@@ -1418,13 +1429,15 @@ function startWhisperRec(lang) {
   });
 }
 
-async function sendWhisperAudio(lang, chunks, mimeType) {
+async function sendWhisperAudio(lang, chunks, mimeType, durationMs = 0) {
   const blob = new Blob(chunks, { type: mimeType });
   const spinner = document.getElementById(`spinner-${lang}`);
   const spinnerLabel = document.getElementById(`spinner-label-${lang}`);
 
-  if (blob.size < 500) {
-    showErr(lang, '録音が短すぎます。もう少し長く話してください。');
+  // 最短録音時間チェック（1秒未満 または 5KB未満は無音・誤タップとみなす）
+  // Whisperは無音や環境音から存在しない文字列を生成するため事前に除外
+  if (durationMs < 1000 || blob.size < 5000) {
+    showErr(lang, '録音が短すぎます。マイクボタンを押しながらはっきり話してから離してください。');
     return;
   }
 
