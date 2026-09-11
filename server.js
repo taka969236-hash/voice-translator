@@ -293,7 +293,7 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   res.on('close', () => clearInterval(ping));
 
   const MODELS = [
-    'claude-sonnet-4-6',
+    'claude-sonnet-5',
     'claude-haiku-4-5-20251001',
     'claude-3-5-haiku-20241022',
   ];
@@ -363,8 +363,8 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)', English: 'English' };
 // ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
 const DOC_BATCH = 6;
-// 文書翻訳はSonnetで品質優先（Haikuはミャンマー語の精度不足・誤訳多発）
-const DOC_MODEL = 'claude-sonnet-4-6';
+// 文書翻訳はSonnetで品質優先（Haikuはミャンマー語の精度不足・誤訳多発）、モデル廃止時のフォールバックあり
+const DOC_MODELS = ['claude-sonnet-5', 'claude-haiku-4-5-20251001'];
 
 // 段落・セル先頭の列挙符号を抽出して本文と分離する
 // 対応パターン例: 1. / 1) / (1) / （1） / ① / Ⅰ. / ア. / ア) / （ア）
@@ -402,14 +402,20 @@ function hasJapaneseSigns(text) {
 
 async function translateOne(text, targetLang, client) {
   const langName = DOC_LANG_NAMES[targetLang];
-  const r = await client.messages.create({
-    model: DOC_MODEL, max_tokens: 2048, temperature: 0,
-    messages: [{ role: 'user', content:
-      `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a list marker (e.g. "1.", "ア."), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
-  });
-  const out = r.content[0].text.trim();
-  // 元テキストと同一、またはひらがな/カタカナが残っている場合は失敗
-  return (out && out !== text && !hasJapaneseSigns(out)) ? out : null;
+  for (const model of DOC_MODELS) {
+    try {
+      const r = await client.messages.create({
+        model, max_tokens: 2048, temperature: 0,
+        messages: [{ role: 'user', content:
+          `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a list marker (e.g. "1.", "ア."), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
+      });
+      const out = r.content[0].text.trim();
+      return (out && out !== text && !hasJapaneseSigns(out)) ? out : null;
+    } catch (e) {
+      console.warn(`[doc-one] model=${model} error:`, e.message, '→ next model');
+    }
+  }
+  return null;
 }
 
 async function translateDocBatch(texts, targetLang, client, glossary) {
@@ -425,24 +431,30 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
     'Output:',
   ].filter(Boolean).join('\n\n');
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const resp = await client.messages.create({
-      model: DOC_MODEL, max_tokens: 8192, temperature: 0,
-      messages: [{ role: 'user', content: prompt }],
-    });
-    // stop_reason が max_tokens = 出力が切断されている → 即フォールバック
-    if (resp.stop_reason === 'max_tokens') {
-      console.warn(`[doc-batch] attempt=${attempt+1} truncated (max_tokens), skip to 1-by-1`);
-      break;
-    }
-    const raw = resp.content[0].text.trim();
-    const m = raw.match(/\[[\s\S]*\]/);
+  for (const model of DOC_MODELS) {
     try {
-      const arr = JSON.parse(m ? m[0] : raw);
-      if (Array.isArray(arr) && arr.length === texts.length) return arr;
-      console.warn(`[doc-batch] attempt=${attempt+1} got ${arr?.length ?? 'n/a'}/${texts.length} items`);
-    } catch {
-      console.warn(`[doc-batch] attempt=${attempt+1} JSON parse failed`);
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const resp = await client.messages.create({
+          model, max_tokens: 8192, temperature: 0,
+          messages: [{ role: 'user', content: prompt }],
+        });
+        // stop_reason が max_tokens = 出力が切断されている → 即フォールバック
+        if (resp.stop_reason === 'max_tokens') {
+          console.warn(`[doc-batch] model=${model} attempt=${attempt+1} truncated (max_tokens)`);
+          break;
+        }
+        const raw = resp.content[0].text.trim();
+        const m = raw.match(/\[[\s\S]*\]/);
+        try {
+          const arr = JSON.parse(m ? m[0] : raw);
+          if (Array.isArray(arr) && arr.length === texts.length) return arr;
+          console.warn(`[doc-batch] model=${model} attempt=${attempt+1} got ${arr?.length ?? 'n/a'}/${texts.length} items`);
+        } catch {
+          console.warn(`[doc-batch] model=${model} attempt=${attempt+1} JSON parse failed`);
+        }
+      }
+    } catch (e) {
+      console.warn(`[doc-batch] model=${model} API error:`, e.message, '→ next model');
     }
   }
 
