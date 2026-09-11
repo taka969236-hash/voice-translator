@@ -19,6 +19,8 @@ const IS_PROD = !!(process.env.RENDER || process.env.NODE_ENV === 'production');
 /* ── 環境変数チェック（起動ログ） ── */
 console.log('[env] ANTHROPIC_API_KEY:', process.env.ANTHROPIC_API_KEY ? '✓ set' : '✗ NOT SET');
 console.log('[env] OPENAI_API_KEY:   ', process.env.OPENAI_API_KEY    ? '✓ set' : '✗ NOT SET');
+console.log('[env] CLAUDE_DOC_MODELS:  ', process.env.CLAUDE_DOC_MODELS   || '(default)');
+console.log('[env] CLAUDE_VOICE_MODELS:', process.env.CLAUDE_VOICE_MODELS || '(default)');
 console.log('[env] IS_PROD:', IS_PROD);
 
 /* ── Claude API ── */
@@ -292,11 +294,10 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   const ping = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 15000);
   res.on('close', () => clearInterval(ping));
 
-  const MODELS = [
-    'claude-sonnet-5',
-    'claude-haiku-4-5-20251001',
-    'claude-3-5-haiku-20241022',
-  ];
+  // モデル廃止時は Render env var CLAUDE_VOICE_MODELS をカンマ区切りで上書き可能
+  const MODELS = process.env.CLAUDE_VOICE_MODELS
+    ? process.env.CLAUDE_VOICE_MODELS.split(',').map(s => s.trim()).filter(Boolean)
+    : ['claude-sonnet-5', 'claude-haiku-4-5-20251001', 'claude-3-5-haiku-20241022'];
 
   for (const model of MODELS) {
     let accumulated = '';
@@ -363,8 +364,11 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)', English: 'English' };
 // ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
 const DOC_BATCH = 6;
-// 文書翻訳はSonnetで品質優先（Haikuはミャンマー語の精度不足・誤訳多発）、モデル廃止時のフォールバックあり
-const DOC_MODELS = ['claude-sonnet-5', 'claude-haiku-4-5-20251001'];
+// 文書翻訳はSonnetで品質優先（Haikuはミャンマー語の精度不足・誤訳多発）
+// モデル廃止時は Render env var CLAUDE_DOC_MODELS をカンマ区切りで上書き可能
+const DOC_MODELS = process.env.CLAUDE_DOC_MODELS
+  ? process.env.CLAUDE_DOC_MODELS.split(',').map(s => s.trim()).filter(Boolean)
+  : ['claude-sonnet-5', 'claude-haiku-4-5-20251001'];
 
 // 段落・セル先頭の列挙符号を抽出して本文と分離する
 // 対応パターン例: 1. / 1) / (1) / （1） / ① / Ⅰ. / ア. / ア) / （ア）
