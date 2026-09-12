@@ -1241,7 +1241,7 @@ const PH_REC = {
    State
 ═══════════════════════════════════════ */
 const st = {};
-ALL_LANGS.forEach(l => { st[l] = { recognition:null, isRecording:false, finalText:'', lastTranslated:'', debounceTimer:null, controller:null, escalateTimer:null }; });
+ALL_LANGS.forEach(l => { st[l] = { recognition:null, isRecording:false, finalText:'', lastTranslated:'', debounceTimer:null, controller:null, escalateTimer:null, isTranslating:false, pendingTranslate:null }; });
 let mode = 'auto';
 let currentAudio = null;
 
@@ -1590,7 +1590,7 @@ function scheduleTranslate(lang) {
     if (!full || full === s.lastTranslated) return;
     const newText = full.slice(s.lastTranslated.length).trim();
     if (newText) doTranslate(lang, newText);
-  }, 150);
+  }, 400);
 }
 
 function manualTranslate(lang) {
@@ -1639,6 +1639,12 @@ function resetPending(lang) {
 async function doTranslate(lang, text) {
   if (!text || !sessionToken) return;
   const s = st[lang];
+  // 翻訳中なら最新テキストをキューに保持して返る（多重 Claude API 呼び出し防止）
+  if (s.isTranslating) {
+    s.pendingTranslate = { text, fullSnap: s.finalText.trim() };
+    return;
+  }
+  s.isTranslating = true;
   s.lastTranslated = s.finalText.trim() || text; // 送信済み位置を full text で管理
   if (s.controller) s.controller.abort();
   const myController = new AbortController();
@@ -1754,13 +1760,21 @@ async function doTranslate(lang, text) {
   } finally {
     clearTimeout(wakeupTimer);
     clearTimeout(transTimeout);
-    // 自分より新しいリクエストが既に始まっている場合はそちらの表示を壊さないよう何もしない
+    s.isTranslating = false;
+    const pending = s.pendingTranslate;
+    s.pendingTranslate = null;
     if (s.controller === myController) {
       s.controller = null;
-      document.getElementById(`spinner-${lang}`).classList.remove('show');
       TARGETS[lang].forEach(tgt => {
         document.getElementById(`result-${lang}-${tgt}`).querySelectorAll('.typing-cur').forEach(c => c.remove());
       });
+      if (pending) {
+        // 待機中テキストを続けて翻訳（スピナーは消さず維持）
+        s.lastTranslated = pending.fullSnap;
+        doTranslate(lang, pending.text);
+      } else {
+        document.getElementById(`spinner-${lang}`).classList.remove('show');
+      }
     }
   }
 }
