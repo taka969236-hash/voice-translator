@@ -307,7 +307,7 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
   // モデル廃止時は Render env var CLAUDE_VOICE_MODELS をカンマ区切りで上書き可能
   const MODELS = process.env.CLAUDE_VOICE_MODELS
     ? process.env.CLAUDE_VOICE_MODELS.split(',').map(s => s.trim()).filter(Boolean)
-    : ['claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-3-5-haiku-20241022'];
+    : ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-3-5-haiku-20241022'];
 
   for (const model of MODELS) {
     let accumulated = '';
@@ -378,7 +378,7 @@ const DOC_BATCH = 6;
 // モデル廃止時は Render env var CLAUDE_DOC_MODELS をカンマ区切りで上書き可能
 const DOC_MODELS = process.env.CLAUDE_DOC_MODELS
   ? process.env.CLAUDE_DOC_MODELS.split(',').map(s => s.trim()).filter(Boolean)
-  : ['claude-sonnet-5', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-3-5-haiku-20241022'];
+  : ['claude-sonnet-4-6', 'claude-haiku-4-5-20251001', 'claude-3-5-haiku-20241022'];
 
 // 段落・セル先頭の列挙符号を抽出して本文と分離する
 // 対応パターン例: 1. / 1) / (1) / （1） / ① / Ⅰ. / ア. / ア) / （ア）
