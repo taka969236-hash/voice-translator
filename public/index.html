@@ -1590,7 +1590,7 @@ function scheduleTranslate(lang) {
     if (!full || full === s.lastTranslated) return;
     const newText = full.slice(s.lastTranslated.length).trim();
     if (newText) doTranslate(lang, newText);
-  }, 400);
+  }, 300);
 }
 
 function manualTranslate(lang) {
@@ -1642,6 +1642,9 @@ async function doTranslate(lang, text) {
   // 翻訳中なら最新テキストをキューに保持して返る（多重 Claude API 呼び出し防止）
   if (s.isTranslating) {
     s.pendingTranslate = { text, fullSnap: s.finalText.trim() };
+    // 発話を受け取ったことをスピナーラベルで通知
+    const lbl = document.getElementById(`spinner-label-${lang}`);
+    if (lbl) lbl.textContent = '📝 次の翻訳を待機中…';
     return;
   }
   s.isTranslating = true;
