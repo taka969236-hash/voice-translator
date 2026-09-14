@@ -1660,8 +1660,8 @@ async function doTranslate(lang, text) {
 
   // done イベント到着まで追跡 (タイムアウト・サイレント切断検知用)
   let doneReceived = false;
-  // 45 秒以内に完了しない場合は abort してタイムアウトエラーを表示
-  const transTimeout = setTimeout(() => { if (!doneReceived) myController.abort(); }, 45000);
+  // 15 秒以内に完了しない場合は abort してタイムアウトエラーを表示
+  const transTimeout = setTimeout(() => { if (!doneReceived) myController.abort(); }, 15000);
 
   // 翻訳先エリアにカーソルを表示（更新前の訳文は履歴へ退避）
   TARGETS[lang].forEach(tgt => {

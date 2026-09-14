@@ -115,6 +115,16 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+/* ── ヘルスチェック（Render モニタリング用・認証不要） ── */
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'ok',
+    anthropic: !!process.env.ANTHROPIC_API_KEY,
+    openai:    !!process.env.OPENAI_API_KEY,
+    sessions:  sessions.size,
+  });
+});
+
 /* ── PIN 認証 → セッショントークン発行 ── */
 app.post('/api/auth', rateLimit, (req, res) => {
   const { pin } = req.body;
