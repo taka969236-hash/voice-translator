@@ -2337,7 +2337,8 @@ let docSelectedFile = null;
       const blob = await res.blob();
       const cd = res.headers.get('Content-Disposition') || '';
       const m  = cd.match(/filename\*?=(?:UTF-8'')?([^;\n]*)/i);
-      const filename = m ? decodeURIComponent(m[1].replace(/['"]/g,'')) : '翻訳.zip';
+      let filename = '翻訳.zip';
+      if (m) { try { filename = decodeURIComponent(m[1].replace(/['"]/g,'')); } catch { filename = m[1].replace(/['"]/g,''); } }
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

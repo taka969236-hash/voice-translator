@@ -414,6 +414,9 @@ function hasJapaneseSigns(text) {
   return /[ぁ-ゟァ-ヶ一-鿿㐀-䶿]/.test(body);
 }
 
+// 各モデル呼び出しのタイムアウト（30秒）。低速・ハングアップしたモデルで全体が詰まるのを防ぐ
+const DOC_API_TIMEOUT = 30000;
+
 async function translateOne(text, targetLang, client) {
   const langName = DOC_LANG_NAMES[targetLang];
   for (const model of DOC_MODELS) {
@@ -422,11 +425,12 @@ async function translateOne(text, targetLang, client) {
         model, max_tokens: 2048, temperature: 0,
         messages: [{ role: 'user', content:
           `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a list marker (e.g. "1.", "ア."), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
-      });
+      }, { timeout: DOC_API_TIMEOUT });
       const out = r.content[0].text.trim();
+      console.log(`[doc-one] model=${model} lang=${targetLang} out_len=${out.length} has_jp=${hasJapaneseSigns(out)}`);
       return (out && out !== text && !hasJapaneseSigns(out)) ? out : null;
     } catch (e) {
-      console.warn(`[doc-one] model=${model} error:`, e.message, '→ next model');
+      console.warn(`[doc-one] model=${model} error: ${e.message} → next model`);
     }
   }
   return null;
@@ -451,29 +455,33 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
         const resp = await client.messages.create({
           model, max_tokens: 8192, temperature: 0,
           messages: [{ role: 'user', content: prompt }],
-        });
+        }, { timeout: DOC_API_TIMEOUT });
         // stop_reason が max_tokens = 出力が切断されている → 即フォールバック
         if (resp.stop_reason === 'max_tokens') {
           console.warn(`[doc-batch] model=${model} attempt=${attempt+1} truncated (max_tokens)`);
           break;
         }
         const raw = resp.content[0].text.trim();
+        console.log(`[doc-batch] model=${model} attempt=${attempt+1} raw_len=${raw.length} lang=${targetLang}`);
         const m = raw.match(/\[[\s\S]*\]/);
         try {
           const arr = JSON.parse(m ? m[0] : raw);
-          if (Array.isArray(arr) && arr.length === texts.length) return arr;
+          if (Array.isArray(arr) && arr.length === texts.length) {
+            console.log(`[doc-batch] model=${model} OK texts=${texts.length}`);
+            return arr;
+          }
           console.warn(`[doc-batch] model=${model} attempt=${attempt+1} got ${arr?.length ?? 'n/a'}/${texts.length} items`);
         } catch {
-          console.warn(`[doc-batch] model=${model} attempt=${attempt+1} JSON parse failed`);
+          console.warn(`[doc-batch] model=${model} attempt=${attempt+1} JSON parse failed raw="${raw.slice(0,80)}"`);
         }
       }
     } catch (e) {
-      console.warn(`[doc-batch] model=${model} API error:`, e.message, '→ next model');
+      console.warn(`[doc-batch] model=${model} API error: ${e.message} → next model`);
     }
   }
 
   // フォールバック: 1件ずつ順次翻訳（並列禁止: レート制限を避けるため）
-  console.warn(`[doc-batch] 1-by-1 fallback for ${texts.length} texts`);
+  console.warn(`[doc-batch] 1-by-1 fallback for ${texts.length} texts lang=${targetLang}`);
   const results = [];
   for (const t of texts) {
     try {
