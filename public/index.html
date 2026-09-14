@@ -1241,7 +1241,7 @@ const PH_REC = {
    State
 ═══════════════════════════════════════ */
 const st = {};
-ALL_LANGS.forEach(l => { st[l] = { recognition:null, isRecording:false, finalText:'', lastTranslated:'', debounceTimer:null, controller:null, escalateTimer:null, isTranslating:false, pendingTranslate:null }; });
+ALL_LANGS.forEach(l => { st[l] = { recognition:null, isRecording:false, finalText:'', lastTranslated:'', debounceTimer:null, controller:null, escalateTimer:null, isTranslating:false }; });
 let mode = 'auto';
 let currentAudio = null;
 
@@ -1589,7 +1589,14 @@ function scheduleTranslate(lang) {
     const full = s.finalText.trim();
     if (!full || full === s.lastTranslated) return;
     const newText = full.slice(s.lastTranslated.length).trim();
-    if (newText) doTranslate(lang, newText);
+    if (!newText) return;
+    if (s.isTranslating) {
+      // 翻訳中のためスキップ。finallyブロックでfinalTextを再チェックして自動続行する
+      const lbl = document.getElementById(`spinner-label-${lang}`);
+      if (lbl) lbl.textContent = '📝 次のフレーズを検出…';
+      return;
+    }
+    doTranslate(lang, newText);
   }, 300);
 }
 
@@ -1639,14 +1646,8 @@ function resetPending(lang) {
 async function doTranslate(lang, text) {
   if (!text || !sessionToken) return;
   const s = st[lang];
-  // 翻訳中なら最新テキストをキューに保持して返る（多重 Claude API 呼び出し防止）
-  if (s.isTranslating) {
-    s.pendingTranslate = { text, fullSnap: s.finalText.trim() };
-    // 発話を受け取ったことをスピナーラベルで通知
-    const lbl = document.getElementById(`spinner-label-${lang}`);
-    if (lbl) lbl.textContent = '📝 次の翻訳を待機中…';
-    return;
-  }
+  // 翻訳中なら即リターン。finallyブロックがfinalTextを再チェックして続行する
+  if (s.isTranslating) return;
   s.isTranslating = true;
   s.lastTranslated = s.finalText.trim() || text; // 送信済み位置を full text で管理
   if (s.controller) s.controller.abort();
@@ -1749,11 +1750,9 @@ async function doTranslate(lang, text) {
 
   } catch(err) {
     if (err.name === 'AbortError') {
-      // 新しいリクエストに引き継がれた場合は何もしない
-      if (s.controller !== myController) return;
-      // タイムアウトによる中断
       if (!doneReceived) {
         showErr(lang, '翻訳がタイムアウトしました。もう一度お試しください。');
+        s.controller = null; // finallyの自動続行を抑止（タイムアウト後は即時再試行しない）
         resetPending(lang);
       }
       return;
@@ -1764,20 +1763,22 @@ async function doTranslate(lang, text) {
     clearTimeout(wakeupTimer);
     clearTimeout(transTimeout);
     s.isTranslating = false;
-    const pending = s.pendingTranslate;
-    s.pendingTranslate = null;
-    if (s.controller === myController) {
-      s.controller = null;
-      TARGETS[lang].forEach(tgt => {
-        document.getElementById(`result-${lang}-${tgt}`).querySelectorAll('.typing-cur').forEach(c => c.remove());
-      });
-      if (pending) {
-        // 待機中テキストを続けて翻訳（スピナーは消さず維持）
-        s.lastTranslated = pending.fullSnap;
-        doTranslate(lang, pending.text);
+    const shouldContinue = s.controller === myController;
+    if (shouldContinue) s.controller = null;
+    TARGETS[lang].forEach(tgt => {
+      document.getElementById(`result-${lang}-${tgt}`).querySelectorAll('.typing-cur').forEach(c => c.remove());
+    });
+    if (shouldContinue) {
+      // 翻訳完了後、新しい発話があれば続けて翻訳（pendingキューを廃止し毎回再チェック）
+      const currentFull = s.finalText.trim();
+      const newSince = currentFull.slice(s.lastTranslated.length).trim();
+      if (newSince) {
+        doTranslate(lang, newSince);
       } else {
         document.getElementById(`spinner-${lang}`).classList.remove('show');
       }
+    } else {
+      document.getElementById(`spinner-${lang}`).classList.remove('show');
     }
   }
 }
