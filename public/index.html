@@ -79,6 +79,7 @@
     .title-group p  { color: var(--muted); font-size: 0.78rem; margin-top: 2px; }
     .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .badge { font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 11px; border-radius: 8px; border: 1.5px solid var(--border); white-space: nowrap; }
+    #tokenBadge { font-size: 0.76rem; color: var(--muted); background: #f0fdf4; padding: 5px 11px; border-radius: 8px; border: 1.5px solid #bbf7d0; white-space: nowrap; display: none; }
     #logoutBtn {
       font-size: 0.76rem; color: var(--muted); background: white; padding: 5px 11px;
       border-radius: 8px; border: 1.5px solid var(--border); cursor: pointer;
@@ -500,6 +501,7 @@
   </div>
   <div class="header-right">
     <span class="badge">🤖 Claude AI · コンテキスト10件</span>
+    <span id="tokenBadge" title="このセッションのAPI使用トークン数">💰 <span id="tokenCount">-</span></span>
     <button id="floatToggleBtn1" class="float-toggle-btn" onclick="toggleFloat(1)">📍 窓1</button>
     <button id="floatToggleBtn2" class="float-toggle-btn" onclick="toggleFloat(2)">📍 窓2</button>
     <button id="floatToggleBtn3" class="float-toggle-btn" onclick="toggleFloat(3)">📍 窓3</button>
@@ -949,9 +951,36 @@ async function checkSession() {
   if (!sessionToken) { showPinScreen(); return; }
   try {
     const r = await fetch('/api/session', { headers: { 'X-Session-Token': sessionToken } });
-    if (r.ok) { hidePinScreen(); }
+    if (r.ok) {
+      hidePinScreen();
+      try {
+        const data = await r.json();
+        if (data.tokens) updateTokenBadge(data.tokens);
+      } catch {}
+    }
     else { localStorage.removeItem('sessionToken'); sessionToken = null; showPinScreen(); }
   } catch { showPinScreen(); }
+}
+
+function updateTokenBadge(tokens) {
+  const total = (tokens.input || 0) + (tokens.output || 0);
+  if (total === 0) return;
+  const badge = document.getElementById('tokenBadge');
+  const count = document.getElementById('tokenCount');
+  if (!badge || !count) return;
+  const fmt = n => n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+  count.textContent = `in:${fmt(tokens.input)} / out:${fmt(tokens.output)}`;
+  badge.style.display = '';
+}
+
+async function fetchTokenUsage() {
+  if (!sessionToken) return;
+  try {
+    const r = await fetch('/api/session', { headers: { 'X-Session-Token': sessionToken } });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.tokens) updateTokenBadge(data.tokens);
+  } catch {}
 }
 
 function showPinScreen() {
@@ -1729,6 +1758,7 @@ async function doTranslate(lang, text) {
           });
           updateFloat(lang, t);
           if (histOpen) loadHistory();
+          fetchTokenUsage();
         }
 
         if (ev.error) {
@@ -2347,6 +2377,7 @@ let docSelectedFile = null;
       document.body.removeChild(a); URL.revokeObjectURL(url);
 
       result.style.display = 'block';
+      fetchTokenUsage();
     } catch(err) {
       showDocError(err.message);
     } finally {

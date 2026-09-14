@@ -138,13 +138,15 @@ app.post('/api/auth', rateLimit, (req, res) => {
     context: [], history: [], dictionary: [],
     viewToken: null, viewers: new Set(),
     lastActivity: Date.now(),
+    tokens: { input: 0, output: 0 },
   });
   res.json({ token });
 });
 
 /* ── セッション確認 ── */
 app.get('/api/session', requireSession, (req, res) => {
-  res.json({ ok: true, historyCount: req.sess.history.length });
+  const t = req.sess.tokens || { input: 0, output: 0 };
+  res.json({ ok: true, historyCount: req.sess.history.length, tokens: t });
 });
 
 /* ── QR コード ── */
@@ -339,6 +341,10 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
         continue;
       }
 
+      if (finalMsg.usage) {
+        sess.tokens.input  += finalMsg.usage.input_tokens  || 0;
+        sess.tokens.output += finalMsg.usage.output_tokens || 0;
+      }
       const entry = { from, text: text.trim(), timestamp: new Date().toISOString(), ...translations };
       sess.context.push(entry);
       if (sess.context.length > 50) sess.context.shift();
@@ -417,7 +423,7 @@ function hasJapaneseSigns(text) {
 // 各モデル呼び出しのタイムアウト（30秒）。低速・ハングアップしたモデルで全体が詰まるのを防ぐ
 const DOC_API_TIMEOUT = 30000;
 
-async function translateOne(text, targetLang, client) {
+async function translateOne(text, targetLang, client, sess) {
   const langName = DOC_LANG_NAMES[targetLang];
   for (const model of DOC_MODELS) {
     try {
@@ -426,6 +432,7 @@ async function translateOne(text, targetLang, client) {
         messages: [{ role: 'user', content:
           `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a list marker (e.g. "1.", "ア."), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
       }, { timeout: DOC_API_TIMEOUT });
+      if (sess && r.usage) { sess.tokens.input += r.usage.input_tokens || 0; sess.tokens.output += r.usage.output_tokens || 0; }
       const out = r.content[0].text.trim();
       console.log(`[doc-one] model=${model} lang=${targetLang} out_len=${out.length} has_jp=${hasJapaneseSigns(out)}`);
       return (out && out !== text && !hasJapaneseSigns(out)) ? out : null;
@@ -436,7 +443,7 @@ async function translateOne(text, targetLang, client) {
   return null;
 }
 
-async function translateDocBatch(texts, targetLang, client, glossary) {
+async function translateDocBatch(texts, targetLang, client, glossary, sess) {
   if (!texts.length) return [];
   const langName = DOC_LANG_NAMES[targetLang];
   const prompt = [
@@ -456,6 +463,7 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
           model, max_tokens: 8192, temperature: 0,
           messages: [{ role: 'user', content: prompt }],
         }, { timeout: DOC_API_TIMEOUT });
+        if (sess && resp.usage) { sess.tokens.input += resp.usage.input_tokens || 0; sess.tokens.output += resp.usage.output_tokens || 0; }
         // stop_reason が max_tokens = 出力が切断されている → 即フォールバック
         if (resp.stop_reason === 'max_tokens') {
           console.warn(`[doc-batch] model=${model} attempt=${attempt+1} truncated (max_tokens)`);
@@ -485,14 +493,14 @@ async function translateDocBatch(texts, targetLang, client, glossary) {
   const results = [];
   for (const t of texts) {
     try {
-      const out = await translateOne(t, targetLang, client);
+      const out = await translateOne(t, targetLang, client, sess);
       results.push(out ?? t);
     } catch { results.push(t); }
   }
   return results;
 }
 
-async function translateDocTexts(texts, targetLang, client, glossary) {
+async function translateDocTexts(texts, targetLang, client, glossary, sess) {
   const results = [...texts];
   // 空白・数値・日付のみのテキストは翻訳対象外
   const idxs = texts.reduce((a, t, i) => {
@@ -502,7 +510,7 @@ async function translateDocTexts(texts, targetLang, client, glossary) {
 
   for (let b = 0; b < idxs.length; b += DOC_BATCH) {
     const batch = idxs.slice(b, b + DOC_BATCH);
-    const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client, glossary);
+    const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client, glossary, sess);
     batch.forEach((oi, j) => {
       const t = translated[j];
       // 翻訳結果が存在し、元テキストと異なり、ひらがな/カタカナがない場合のみ採用
@@ -519,7 +527,7 @@ async function translateDocTexts(texts, targetLang, client, glossary) {
     console.warn(`[doc-texts] 2nd-pass retry for ${retryIdxs.length} items`);
     for (const i of retryIdxs) {
       try {
-        const out = await translateOne(texts[i], targetLang, client);
+        const out = await translateOne(texts[i], targetLang, client, sess);
         if (out && !hasJapaneseSigns(out)) results[i] = out;
       } catch {}
     }
@@ -673,21 +681,21 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
       if (ext === '.xlsx') {
         const texts  = extractExcelTexts(req.file.buffer);
         const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
-        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary);
+        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary, req.sess);
         const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
         outBuf = processExcel(req.file.buffer, final, texts);
       } else if (ext === '.pptx') {
         const info   = extractPptxTexts(req.file.buffer);
         const texts  = info.paras.map(p => p.text);
         const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
-        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary);
+        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary, req.sess);
         const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
         outBuf = rebuildPptx(req.file.buffer, final, info);
       } else {
         const info   = extractDocxTexts(req.file.buffer);
         const texts  = info.paras.map(p => p.text);
         const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
-        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary);
+        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary, req.sess);
         const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
         outBuf = rebuildDocx(req.file.buffer, final, info);
       }
