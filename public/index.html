@@ -612,6 +612,7 @@
       <span class="mic-dot"></span>
       <span id="mic-label-ja">話す</span>
     </button>
+    <div id="error-ja" class="panel-error"></div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-ja"><span class="spinner"></span> <span id="spinner-label-ja">翻訳中…</span></div>
@@ -649,7 +650,6 @@
       <div id="hist-ja-en" class="result-hist"></div>
       <div id="result-ja-en" class="result-text ph">Translation will appear here</div>
     </div>
-    <div id="error-ja" class="panel-error"></div>
   </div>
 
   <!-- 🇻🇳 ベトナム語パネル -->
@@ -679,6 +679,7 @@
       <span class="mic-dot"></span>
       <span id="mic-label-vi">Nói</span>
     </button>
+    <div id="error-vi" class="panel-error"></div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-vi"><span class="spinner"></span> <span id="spinner-label-vi">翻訳中…</span></div>
@@ -716,7 +717,6 @@
       <div id="hist-vi-en" class="result-hist"></div>
       <div id="result-vi-en" class="result-text ph">Translation will appear here</div>
     </div>
-    <div id="error-vi" class="panel-error"></div>
   </div>
 
   <!-- 🇲🇲 ミャンマー語パネル -->
@@ -747,6 +747,7 @@
       <span id="mic-label-my" style="font-family:'Noto Sans Myanmar',sans-serif;">ပြောဆိုမည်</span>
     </button>
     <div style="font-size:0.7rem;color:var(--muted);text-align:center;">🎙 Whisper AI 音声認識 — iPhone / Android / PC 全対応</div>
+    <div id="error-my" class="panel-error"></div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-my"><span class="spinner"></span> <span id="spinner-label-my">翻訳中…</span></div>
@@ -784,7 +785,6 @@
       <div id="hist-my-en" class="result-hist"></div>
       <div id="result-my-en" class="result-text ph">Translation will appear here</div>
     </div>
-    <div id="error-my" class="panel-error"></div>
   </div>
 
   <!-- 🇬🇧 英語パネル -->
@@ -814,6 +814,7 @@
       <span class="mic-dot"></span>
       <span id="mic-label-en">Speak</span>
     </button>
+    <div id="error-en" class="panel-error"></div>
 
     <hr class="panel-divider" />
     <div class="panel-spinner" id="spinner-en"><span class="spinner"></span> <span id="spinner-label-en">翻訳中…</span></div>
@@ -851,7 +852,6 @@
       <div id="hist-en-my" class="result-hist"></div>
       <div id="result-en-my" class="result-text ph mm">ဘာသာပြန်ချက်ဤနေရာတွင် ပေါ်လာမည်</div>
     </div>
-    <div id="error-en" class="panel-error"></div>
   </div>
 
 </div><!-- .panel-grid -->
@@ -1463,10 +1463,10 @@ async function sendWhisperAudio(lang, chunks, mimeType, durationMs = 0) {
   const spinner = document.getElementById(`spinner-${lang}`);
   const spinnerLabel = document.getElementById(`spinner-label-${lang}`);
 
-  // 最短録音時間チェック（1秒未満 または 5KB未満は無音・誤タップとみなす）
+  // 最短録音時間チェック（0.5秒未満 または 1KB未満は無音・誤タップとみなす）
   // Whisperは無音や環境音から存在しない文字列を生成するため事前に除外
-  if (durationMs < 1000 || blob.size < 5000) {
-    showErr(lang, '録音が短すぎます。マイクボタンを押しながらはっきり話してから離してください。');
+  if (durationMs < 500 || blob.size < 1000) {
+    showErr(lang, '録音が短すぎます。マイクボタンを押してから話し、もう一度押して停止してください。');
     return;
   }
 
