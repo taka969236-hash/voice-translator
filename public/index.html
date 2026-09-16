@@ -1000,7 +1000,10 @@ let _keepAliveTimer = null;
 function startKeepAlive() {
   if (_keepAliveTimer) return;
   _keepAliveTimer = setInterval(() => {
-    if (sessionToken) fetch('/api/session', { headers: { 'X-Session-Token': sessionToken } }).catch(() => {});
+    if (!sessionToken) return;
+    fetch('/api/session', { headers: { 'X-Session-Token': sessionToken } })
+      .then(r => { if (r.status === 401) handleAuthError(); })
+      .catch(() => {});
   }, 12 * 60 * 1000);
 }
 
@@ -1486,6 +1489,7 @@ async function sendWhisperAudio(lang, chunks, mimeType, durationMs = 0) {
       method: 'POST', body: fd,
       headers: { 'X-Session-Token': sessionToken },
     });
+    if (resp.status === 401) { handleAuthError(); spinner.classList.remove('show'); return; }
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
       throw new Error(data.error || `エラー (${resp.status})`);
