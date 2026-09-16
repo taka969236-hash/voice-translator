@@ -1044,7 +1044,12 @@ document.getElementById('pinInput').addEventListener('keydown', e => {
   document.getElementById('pinError').textContent = '';
 });
 
+function stopAllMics() {
+  ALL_LANGS.forEach(l => { if (st[l] && st[l].isRecording) stopRec(l); });
+}
+
 function handleAuthError() {
+  stopAllMics();
   localStorage.removeItem('sessionToken');
   sessionToken = null;
   showPinScreen();
@@ -1052,6 +1057,7 @@ function handleAuthError() {
 
 function logout() {
   if (!confirm('ログアウトしますか？')) return;
+  stopAllMics();
   localStorage.removeItem('sessionToken');
   sessionToken = null;
   showPinScreen();
