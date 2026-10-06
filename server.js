@@ -824,6 +824,15 @@ app.put('/api/dictionary/:id', requireSession, rateLimit, (req, res) => {
   res.json(dict[idx]);
 });
 
+/* ── Express エラーハンドラー (multer等のエラーをJSON返却) ── */
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('[express-error]', err.message, err.stack?.slice(0, 400));
+  if (res.headersSent) return;
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({ error: err.message || 'サーバーエラー' });
+});
+
 /* ── サーバー起動 ── */
 const PORT = process.env.PORT || 3000;
 

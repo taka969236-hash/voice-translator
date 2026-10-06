@@ -2370,8 +2370,11 @@ let docSelectedFile = null;
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: `サーバーエラー (${res.status})` }));
-        throw new Error(data.error || `サーバーエラー (${res.status})`);
+        const text = await res.text().catch(() => '');
+        let msg = `サーバーエラー (${res.status})`;
+        try { const d = JSON.parse(text); msg = d.error || msg; }
+        catch { if (text) msg += ': ' + text.replace(/<[^>]+>/g,'').trim().slice(0, 120); }
+        throw new Error(msg);
       }
 
       const blob = await res.blob();
