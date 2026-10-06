@@ -376,7 +376,7 @@ app.post('/api/translate', requireSession, rateLimit, async (req, res) => {
 
 /* ── ドキュメント翻訳 ── */
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const DOC_LANG_NAMES = { Vietnamese: 'Vietnamese', Burmese: 'Burmese (Myanmar)', English: 'English' };
 // ミャンマー語は日本語の約2倍トークン → バッチを小さく抑える
 const DOC_BATCH = 6;
@@ -830,7 +830,10 @@ app.use((err, req, res, next) => {
   console.error('[express-error]', err.message, err.stack?.slice(0, 400));
   if (res.headersSent) return;
   const status = err.status || err.statusCode || 500;
-  res.status(status).json({ error: err.message || 'サーバーエラー' });
+  const msg = (err.code === 'LIMIT_FILE_SIZE')
+    ? 'ファイルが大きすぎます（上限50MB）'
+    : (err.message || 'サーバーエラー');
+  res.status(status).json({ error: msg });
 });
 
 /* ── サーバー起動 ── */
