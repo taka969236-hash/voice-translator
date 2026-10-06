@@ -893,7 +893,7 @@
     <button class="doc-translate-btn" id="docTranslateBtn">翻訳 開始</button>
     <div class="doc-loading" id="docLoading">
       <div class="spinner"></div>
-      <p>翻訳中... しばらくお待ちください</p>
+      <p id="docLoadingStatus">翻訳中... しばらくお待ちください</p>
       <small>テキスト量によって数分〜10分程度かかります</small>
     </div>
     <div class="doc-result" id="docResult">✅ 翻訳完了！ファイルのダウンロードが始まります。</div>
@@ -2333,7 +2333,7 @@ let docSelectedFile = null;
   function setDocFile(file) {
     if (!file) return;
     const ext = file.name.split('.').pop().toLowerCase();
-    if (!['docx','xlsx','pptx'].includes(ext)) { showDocError('.docx、.xlsx または .pptx を選択してください'); return; }
+    if (!['docx','xlsx','xlsm','pptx'].includes(ext)) { showDocError('.docx、.xlsx/.xlsm または .pptx を選択してください'); return; }
     docSelectedFile = file;
     nameText.textContent = file.name;
     nameBox.style.display = 'flex';
@@ -2358,44 +2358,66 @@ let docSelectedFile = null;
     btn.disabled = true;
     loading.style.display = 'flex';
     hideDocMessages();
+    const statusEl = document.getElementById('docLoadingStatus');
 
     try {
       const fd = new FormData();
       fd.append('file', docSelectedFile);
       langs.forEach(l => fd.append('langs', l));
 
-      const res = await fetch('/api/translate-doc', {
+      const response = await fetch('/api/translate-doc', {
         method: 'POST', body: fd,
         headers: { 'x-session-token': sessionToken },
       });
 
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        let msg = `サーバーエラー (${res.status})`;
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        let msg = `サーバーエラー (${response.status})`;
         try { const d = JSON.parse(text); msg = d.error || msg; }
         catch { if (text) msg += ': ' + text.replace(/<[^>]+>/g,'').trim().slice(0, 120); }
         throw new Error(msg);
       }
 
-      const blob = await res.blob();
-      const cd = res.headers.get('Content-Disposition') || '';
-      const m  = cd.match(/filename\*?=(?:UTF-8'')?([^;\n]*)/i);
-      let filename = '翻訳.zip';
-      if (m) { try { filename = decodeURIComponent(m[1].replace(/['"]/g,'')); } catch { filename = m[1].replace(/['"]/g,''); } }
+      // SSE ストリームを読み取り、done イベントでファイルをダウンロード
+      const reader  = response.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+      let finished  = false;
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = filename;
-      document.body.appendChild(a); a.click();
-      document.body.removeChild(a); URL.revokeObjectURL(url);
-
-      result.style.display = 'block';
-      fetchTokenUsage();
+      while (!finished) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        sseBuffer += decoder.decode(value, { stream: true });
+        const chunks = sseBuffer.split('\n\n');
+        sseBuffer = chunks.pop() ?? '';
+        for (const chunk of chunks) {
+          if (!chunk.startsWith('data: ')) continue;
+          let data;
+          try { data = JSON.parse(chunk.slice(6)); } catch { continue; }
+          if (data.error) throw new Error(data.error);
+          if (data.status && statusEl) statusEl.textContent = data.status;
+          if (data.done) {
+            const bytes = Uint8Array.from(atob(data.file), c => c.charCodeAt(0));
+            const blob  = new Blob([bytes], { type: data.type });
+            const url   = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = data.name;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a); URL.revokeObjectURL(url);
+            result.style.display = 'block';
+            fetchTokenUsage();
+            finished = true;
+            break;
+          }
+        }
+      }
+      if (!finished) throw new Error('翻訳が完了しませんでした。再度お試しください。');
     } catch(err) {
       showDocError(err.message);
     } finally {
       btn.disabled = false;
       loading.style.display = 'none';
+      if (statusEl) statusEl.textContent = '翻訳中... しばらくお待ちください';
     }
   });
 

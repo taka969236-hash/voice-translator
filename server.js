@@ -671,13 +671,27 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
   if (!['.xlsx', '.xlsm', '.docx', '.pptx'].includes(ext))
     return res.status(400).json({ error: '.xlsx/.xlsm、.docx または .pptx のみ対応しています' });
 
+  // SSE ストリーミング開始（Render プロキシの30秒タイムアウトを回避）
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const sse  = obj => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(obj)}\n\n`); };
+  const ping = setInterval(() => { if (!res.writableEnded) res.write(': ping\n\n'); }, 10000);
+  res.on('close', () => clearInterval(ping));
+
   try {
     const outExt = ext === '.xlsm' ? '.xlsx' : ext;
     const outputs = [];
-    for (const lang of langs) {
-      const code     = lang === 'Vietnamese' ? 'vi' : lang === 'English' ? 'en' : 'my';
-      const suffix   = lang === 'Vietnamese' ? '(ベトナム)' : lang === 'English' ? '(英語)' : '(ミャンマー)';
+
+    for (let li = 0; li < langs.length; li++) {
+      const lang    = langs[li];
+      const code    = lang === 'Vietnamese' ? 'vi' : lang === 'English' ? 'en' : 'my';
+      const suffix  = lang === 'Vietnamese' ? '(ベトナム)' : lang === 'English' ? '(英語)' : '(ミャンマー)';
+      const langJa  = lang === 'Vietnamese' ? 'ベトナム語' : lang === 'English' ? '英語' : 'ミャンマー語';
       const glossary = buildGlossary(req.sess.dictionary, [code]);
+      sse({ status: `${langJa}に翻訳中... (${li + 1}/${langs.length})` });
+
       let outBuf;
       if (ext === '.xlsx' || ext === '.xlsm') {
         const texts  = extractExcelTexts(req.file.buffer);
@@ -703,28 +717,33 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
       outputs.push({ name: `${stem}${suffix}${outExt}`, buf: outBuf });
     }
 
+    let resultBuf, resultName, resultType;
     if (outputs.length === 1) {
-      const { name, buf } = outputs[0];
-      res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
+      resultBuf  = outputs[0].buf;
+      resultName = outputs[0].name;
       const CTYPES = {
         '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       };
-      res.setHeader('Content-Type', CTYPES[outExt] || 'application/octet-stream');
-      return res.send(buf);
+      resultType = CTYPES[outExt] || 'application/octet-stream';
+    } else {
+      // adm-zip は日本語ファイル名の UTF-8 エンコーディングが不安定なため PizZip を使用
+      const zip  = new PizZip();
+      outputs.forEach(o => zip.file(o.name, o.buf));
+      resultBuf  = zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' });
+      resultName = stem + '_翻訳.zip';
+      resultType = 'application/zip';
     }
 
-    // adm-zip は日本語ファイル名の UTF-8 エンコーディングが不安定なため PizZip を使用
-    const zip = new PizZip();
-    outputs.forEach(o => zip.file(o.name, o.buf));
-    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(stem + '_翻訳.zip')}`);
-    res.setHeader('Content-Type', 'application/zip');
-    res.send(zip.generate({ type: 'nodebuffer', compression: 'DEFLATE' }));
+    console.log(`[translate-doc] done ext=${ext} langs=${langs.join(',')} size=${resultBuf.length}`);
+    sse({ done: true, file: resultBuf.toString('base64'), name: resultName, type: resultType });
+    res.end();
 
   } catch (err) {
     console.error('[translate-doc]', err.message);
-    res.status(500).json({ error: `翻訳エラー: ${err.message}` });
+    sse({ error: `翻訳エラー: ${err.message}` });
+    res.end();
   }
 });
 
