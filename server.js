@@ -668,17 +668,18 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
   })();
   const ext  = path.extname(decodedName).toLowerCase();
   const stem = path.basename(decodedName, ext);
-  if (!['.xlsx', '.docx', '.pptx'].includes(ext))
-    return res.status(400).json({ error: '.xlsx、.docx または .pptx のみ対応しています' });
+  if (!['.xlsx', '.xlsm', '.docx', '.pptx'].includes(ext))
+    return res.status(400).json({ error: '.xlsx/.xlsm、.docx または .pptx のみ対応しています' });
 
   try {
+    const outExt = ext === '.xlsm' ? '.xlsx' : ext;
     const outputs = [];
     for (const lang of langs) {
       const code     = lang === 'Vietnamese' ? 'vi' : lang === 'English' ? 'en' : 'my';
       const suffix   = lang === 'Vietnamese' ? '(ベトナム)' : lang === 'English' ? '(英語)' : '(ミャンマー)';
       const glossary = buildGlossary(req.sess.dictionary, [code]);
       let outBuf;
-      if (ext === '.xlsx') {
+      if (ext === '.xlsx' || ext === '.xlsm') {
         const texts  = extractExcelTexts(req.file.buffer);
         const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
         const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary, req.sess);
@@ -699,7 +700,7 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
         const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
         outBuf = rebuildDocx(req.file.buffer, final, info);
       }
-      outputs.push({ name: `${stem}${suffix}${ext}`, buf: outBuf });
+      outputs.push({ name: `${stem}${suffix}${outExt}`, buf: outBuf });
     }
 
     if (outputs.length === 1) {
@@ -710,7 +711,7 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
         '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       };
-      res.setHeader('Content-Type', CTYPES[ext] || 'application/octet-stream');
+      res.setHeader('Content-Type', CTYPES[outExt] || 'application/octet-stream');
       return res.send(buf);
     }
 
