@@ -2404,6 +2404,9 @@ let docSelectedFile = null;
             a.href = url; a.download = data.name;
             document.body.appendChild(a); a.click();
             document.body.removeChild(a); URL.revokeObjectURL(url);
+            result.textContent = data.untranslated > 0
+              ? `⚠️ 翻訳完了（${data.total.toLocaleString()}件中 ${data.untranslated.toLocaleString()}件は日本語のまま残りました。もう一度実行すると改善する場合があります）`
+              : `✅ 翻訳完了！（${(data.total || 0).toLocaleString()}件）ファイルのダウンロードが始まります。`;
             result.style.display = 'block';
             fetchTokenUsage();
             finished = true;

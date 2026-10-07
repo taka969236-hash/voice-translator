@@ -42,7 +42,7 @@ setInterval(() => {
       sessions.delete(token);
     }
   }
-}, 60 * 60 * 1000);
+}, 60 * 60 * 1000).unref();
 
 function requireSession(req, res, next) {
   const token = req.headers['x-session-token'];
@@ -411,44 +411,90 @@ function isNumericOnly(text) {
   return false;
 }
 
-// 日本語（ひらがな・カタカナ・漢字）が残っている = 翻訳失敗
-// ただし先頭の列挙符号（ア. など）は除いて判定
-function hasJapaneseSigns(text) {
-  // 先頭の「（ア）」「ア. 」などの列挙符号を除いた本文で検出
-  const body = text.replace(/^[\s（(]*[ぁ-ゟァ-ヶ][\s）).。]+/, '');
-  // ひらがな・カタカナ・漢字（CJK統合漢字）のいずれかが残っていれば失敗
-  return /[ぁ-ゟァ-ヶ一-鿿㐀-䶿]/.test(body);
+// 日本語文字（ひらがな・カタカナ・漢字）
+const JP_CHAR_RE = /[ぁ-ゟァ-ヶ一-鿿㐀-䶿]/;
+const JP_CHAR_RE_G = /[ぁ-ゟァ-ヶ一-鿿㐀-䶿]/g;
+function hasJapanese(text) { return JP_CHAR_RE.test(text); }
+
+// 翻訳結果に占める日本語文字の割合。人名など一部が残るのは許容し、原文のまま返された場合だけ弾く
+function jpRatio(text) {
+  if (!text) return 1;
+  const m = text.match(JP_CHAR_RE_G);
+  return m ? m.length / text.length : 0;
+}
+function isUntranslated(out, src) {
+  return !out || out === src || jpRatio(out) > 0.25;
 }
 
 // 各モデル呼び出しのタイムアウト（30秒）。低速・ハングアップしたモデルで全体が詰まるのを防ぐ
 const DOC_API_TIMEOUT = 30000;
+// 同時に走らせるAPI呼び出し数（レート制限と速度のバランス）
+const DOC_CONCURRENCY = 4;
+// 1回の翻訳で扱うユニークな日本語テキストの上限（超過時は実行前に明示エラー）
+const DOC_MAX_TEXTS = parseInt(process.env.DOC_MAX_TEXTS, 10) || 3000;
+// 個別再試行(第2パス)の上限件数
+const DOC_RETRY_MAX = 300;
 
-async function translateOne(text, targetLang, client, sess) {
+function newDocCtx(sess) {
+  return { sess, stats: { total: 0, failed: 0, lastError: '', emptyBatches: 0, translatedAny: false } };
+}
+
+function addUsage(ctx, usage) {
+  if (ctx?.sess?.tokens && usage) {
+    ctx.sess.tokens.input  += usage.input_tokens  || 0;
+    ctx.sess.tokens.output += usage.output_tokens || 0;
+  }
+}
+
+// 認証・残高不足などリトライしても無駄なエラーは即時中断する
+function isFatalApiError(e) {
+  const status = e?.status || e?.statusCode;
+  if (status === 401 || status === 403) return true;
+  return /credit balance|invalid x-api-key|authentication/i.test(e?.message || '');
+}
+
+async function runPool(items, concurrency, fn) {
+  let next = 0, firstError = null;
+  const worker = async () => {
+    while (!firstError) {
+      const i = next++;
+      if (i >= items.length) return;
+      try { await fn(items[i], i); } catch (e) { firstError = firstError || e; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  if (firstError) throw firstError;
+}
+
+const NAME_RULE = 'Person names, company names and other proper nouns written in Japanese must be transliterated into the target language/script (never left as Japanese characters).';
+
+async function translateOne(text, targetLang, client, ctx) {
   const langName = DOC_LANG_NAMES[targetLang];
   for (const model of DOC_MODELS) {
     try {
       const r = await client.messages.create({
         model, max_tokens: 2048, temperature: 0,
         messages: [{ role: 'user', content:
-          `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. EXCEPTION: if the text starts with a list marker (e.g. "1.", "ア."), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
+          `Translate this Japanese text to ${langName}. Output ONLY in ${langName}. Do NOT include any Japanese characters. ${NAME_RULE} EXCEPTION: if the text starts with a list marker (e.g. "1.", "ア."), keep that marker as-is. Return only the translation, no markdown, no explanation.\n\n${text}` }],
       }, { timeout: DOC_API_TIMEOUT });
-      if (sess && r.usage) { sess.tokens.input += r.usage.input_tokens || 0; sess.tokens.output += r.usage.output_tokens || 0; }
+      addUsage(ctx, r.usage);
       const out = r.content[0].text.trim();
-      console.log(`[doc-one] model=${model} lang=${targetLang} out_len=${out.length} has_jp=${hasJapaneseSigns(out)}`);
-      return (out && out !== text && !hasJapaneseSigns(out)) ? out : null;
+      return isUntranslated(out, text) ? null : out;
     } catch (e) {
+      ctx.stats.lastError = e.message;
+      if (isFatalApiError(e)) throw e;
       console.warn(`[doc-one] model=${model} error: ${e.message} → next model`);
     }
   }
   return null;
 }
 
-async function translateDocBatch(texts, targetLang, client, glossary, sess) {
+async function translateDocBatch(texts, targetLang, client, glossary, ctx) {
   if (!texts.length) return [];
   const langName = DOC_LANG_NAMES[targetLang];
   const prompt = [
     `Translate the following Japanese texts to ${langName}.`,
-    `CRITICAL: Output ONLY in ${langName}. Do NOT include any Japanese hiragana, katakana, or kanji in your translations.`,
+    `CRITICAL: Output ONLY in ${langName}. Do NOT include any Japanese hiragana, katakana, or kanji in your translations. ${NAME_RULE}`,
     `EXCEPTION: If a text starts with a list marker (numbers like "1.", "(2)", or kana like "ア.", "（イ）"), keep that marker exactly as-is and translate only the following text.`,
     glossary,
     `Return ONLY a JSON array of exactly ${texts.length} translated strings in the same order. No explanation, no markdown.`,
@@ -463,77 +509,101 @@ async function translateDocBatch(texts, targetLang, client, glossary, sess) {
           model, max_tokens: 8192, temperature: 0,
           messages: [{ role: 'user', content: prompt }],
         }, { timeout: DOC_API_TIMEOUT });
-        if (sess && resp.usage) { sess.tokens.input += resp.usage.input_tokens || 0; sess.tokens.output += resp.usage.output_tokens || 0; }
+        addUsage(ctx, resp.usage);
         // stop_reason が max_tokens = 出力が切断されている → 即フォールバック
         if (resp.stop_reason === 'max_tokens') {
           console.warn(`[doc-batch] model=${model} attempt=${attempt+1} truncated (max_tokens)`);
           break;
         }
         const raw = resp.content[0].text.trim();
-        console.log(`[doc-batch] model=${model} attempt=${attempt+1} raw_len=${raw.length} lang=${targetLang}`);
         const m = raw.match(/\[[\s\S]*\]/);
         try {
           const arr = JSON.parse(m ? m[0] : raw);
-          if (Array.isArray(arr) && arr.length === texts.length) {
-            console.log(`[doc-batch] model=${model} OK texts=${texts.length}`);
-            return arr;
-          }
+          if (Array.isArray(arr) && arr.length === texts.length) return arr;
           console.warn(`[doc-batch] model=${model} attempt=${attempt+1} got ${arr?.length ?? 'n/a'}/${texts.length} items`);
         } catch {
           console.warn(`[doc-batch] model=${model} attempt=${attempt+1} JSON parse failed raw="${raw.slice(0,80)}"`);
         }
       }
     } catch (e) {
+      ctx.stats.lastError = e.message;
+      if (isFatalApiError(e)) throw e;
       console.warn(`[doc-batch] model=${model} API error: ${e.message} → next model`);
     }
   }
 
-  // フォールバック: 1件ずつ順次翻訳（並列禁止: レート制限を避けるため）
+  // フォールバック: 1件ずつ翻訳（モデル全滅時にも呼ばれるため、連続失敗は上位で検知して中断する）
   console.warn(`[doc-batch] 1-by-1 fallback for ${texts.length} texts lang=${targetLang}`);
   const results = [];
-  for (const t of texts) {
-    try {
-      const out = await translateOne(t, targetLang, client, sess);
-      results.push(out ?? t);
-    } catch { results.push(t); }
-  }
+  for (const t of texts) results.push(await translateOne(t, targetLang, client, ctx));
   return results;
 }
 
-async function translateDocTexts(texts, targetLang, client, glossary, sess) {
+// texts のうち日本語を含むものだけを翻訳する。戻り値は texts と同じ長さ（未翻訳は原文のまま）
+// 失敗件数は ctx.stats に集計し、成果が全く出ない場合は例外で中断する
+async function translateDocTexts(texts, targetLang, client, glossary, ctx, onProgress) {
   const results = [...texts];
-  // 空白・数値・日付のみのテキストは翻訳対象外
-  const idxs = texts.reduce((a, t, i) => {
-    if (t && t.trim() && !isNumericOnly(t)) a.push(i);
-    return a;
-  }, []);
+  const st = ctx.stats;
 
-  for (let b = 0; b < idxs.length; b += DOC_BATCH) {
-    const batch = idxs.slice(b, b + DOC_BATCH);
-    const translated = await translateDocBatch(batch.map(i => texts[i]), targetLang, client, glossary, sess);
-    batch.forEach((oi, j) => {
+  // 重複排除: 同一文言は1回だけ翻訳する
+  const uniq = [], pos = new Map();
+  texts.forEach(t => {
+    if (t && t.trim() && !isNumericOnly(t) && hasJapanese(t) && !pos.has(t)) { pos.set(t, uniq.length); uniq.push(t); }
+  });
+  if (uniq.length > DOC_MAX_TEXTS) {
+    throw new Error(`翻訳対象が${uniq.length.toLocaleString()}件あり、上限(${DOC_MAX_TEXTS.toLocaleString()}件)を超えています。必要なシート・範囲だけに絞ったファイルで実行してください`);
+  }
+  st.total += uniq.length;
+
+  const uRes = new Array(uniq.length).fill(null);
+  const batches = [];
+  for (let b = 0; b < uniq.length; b += DOC_BATCH) batches.push(uniq.slice(b, b + DOC_BATCH).map((t, j) => b + j));
+
+  let done = 0;
+  await runPool(batches, DOC_CONCURRENCY, async (idxs) => {
+    const translated = await translateDocBatch(idxs.map(i => uniq[i]), targetLang, client, glossary, ctx);
+    let ok = 0;
+    idxs.forEach((ui, j) => {
       const t = translated[j];
-      // 翻訳結果が存在し、元テキストと異なり、ひらがな/カタカナがない場合のみ採用
-      if (t && t !== texts[oi] && !hasJapaneseSigns(t)) results[oi] = t;
-      else if (t && hasJapaneseSigns(t)) {
-        console.warn(`[doc-texts] kana in result idx=${oi}: "${t.slice(0,40)}"`);
-      }
+      if (!isUntranslated(t, uniq[ui])) { uRes[ui] = t; ok++; }
+    });
+    if (ok > 0) { st.translatedAny = true; st.emptyBatches = 0; }
+    else if (!st.translatedAny && ++st.emptyBatches >= 5) {
+      throw new Error(`翻訳APIから結果が得られません（${st.lastError || '原因不明'}）`);
+    }
+    done += idxs.length;
+    onProgress?.(Math.min(done, uniq.length), uniq.length);
+  });
+
+  // 第2パス: 未翻訳のまま残った項目を個別に再試行（件数上限あり）
+  const retry = uniq.map((_, i) => i).filter(i => uRes[i] === null).slice(0, DOC_RETRY_MAX);
+  if (retry.length) {
+    console.warn(`[doc-texts] 2nd-pass retry for ${retry.length} items`);
+    await runPool(retry, DOC_CONCURRENCY, async (ui) => {
+      const out = await translateOne(uniq[ui], targetLang, client, ctx);
+      if (out) uRes[ui] = out;
     });
   }
 
-  // 第2パス: ひらがな/カタカナが残っているか元テキストのままの項目を個別再試行
-  const retryIdxs = idxs.filter(i => hasJapaneseSigns(results[i]) || results[i] === texts[i]);
-  if (retryIdxs.length > 0) {
-    console.warn(`[doc-texts] 2nd-pass retry for ${retryIdxs.length} items`);
-    for (const i of retryIdxs) {
-      try {
-        const out = await translateOne(texts[i], targetLang, client, sess);
-        if (out && !hasJapaneseSigns(out)) results[i] = out;
-      } catch {}
-    }
-  }
-
+  texts.forEach((t, i) => { const p = pos.get(t); if (p !== undefined && uRes[p]) results[i] = uRes[p]; });
+  st.failed += uRes.filter(r => r === null).length;
   return results;
+}
+
+// 1言語分の文書翻訳。形式ごとの抽出→翻訳→再構築をまとめる
+async function translateDocument({ buffer, ext, lang, client, glossary, ctx, onProgress }) {
+  let texts, info;
+  if (ext === '.xlsx' || ext === '.xlsm') texts = extractExcelTexts(buffer);
+  else if (ext === '.pptx') { info = extractPptxTexts(buffer); texts = info.paras.map(p => p.text); }
+  else { info = extractDocxTexts(buffer); texts = info.paras.map(p => p.text); }
+
+  const mData = texts.map(t => extractListMarker(t) || { marker: '', body: t });
+  const trans = await translateDocTexts(mData.map(d => d.body), lang, client, glossary, ctx, onProgress);
+  const final = trans.map((t, i) => t ? mData[i].marker + t : t);
+
+  if (ext === '.xlsx' || ext === '.xlsm') return processExcel(buffer, final, texts);
+  if (ext === '.pptx') return rebuildPptx(buffer, final, info);
+  return rebuildDocx(buffer, final, info);
 }
 
 function escXml(s) {
@@ -683,6 +753,7 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
   try {
     const outExt = ext === '.xlsm' ? '.xlsx' : ext;
     const outputs = [];
+    const ctx = newDocCtx(req.sess);
 
     for (let li = 0; li < langs.length; li++) {
       const lang    = langs[li];
@@ -690,32 +761,19 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
       const suffix  = lang === 'Vietnamese' ? '(ベトナム)' : lang === 'English' ? '(英語)' : '(ミャンマー)';
       const langJa  = lang === 'Vietnamese' ? 'ベトナム語' : lang === 'English' ? '英語' : 'ミャンマー語';
       const glossary = buildGlossary(req.sess.dictionary, [code]);
-      sse({ status: `${langJa}に翻訳中... (${li + 1}/${langs.length})` });
+      const head = `${langJa}に翻訳中 (${li + 1}/${langs.length})`;
+      sse({ status: `${head}...` });
 
-      let outBuf;
-      if (ext === '.xlsx' || ext === '.xlsm') {
-        const texts  = extractExcelTexts(req.file.buffer);
-        const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
-        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary, req.sess);
-        const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
-        outBuf = processExcel(req.file.buffer, final, texts);
-      } else if (ext === '.pptx') {
-        const info   = extractPptxTexts(req.file.buffer);
-        const texts  = info.paras.map(p => p.text);
-        const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
-        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary, req.sess);
-        const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
-        outBuf = rebuildPptx(req.file.buffer, final, info);
-      } else {
-        const info   = extractDocxTexts(req.file.buffer);
-        const texts  = info.paras.map(p => p.text);
-        const mData  = texts.map(t => extractListMarker(t) || { marker: '', body: t });
-        const trans  = await translateDocTexts(mData.map(d => d.body), lang, anthropic, glossary, req.sess);
-        const final  = trans.map((t, i) => t ? mData[i].marker + t : t);
-        outBuf = rebuildDocx(req.file.buffer, final, info);
-      }
+      const outBuf = await translateDocument({
+        buffer: req.file.buffer, ext, lang, client: anthropic, glossary, ctx,
+        onProgress: (d, t) => sse({ status: `${head} ${d.toLocaleString()}/${t.toLocaleString()}件` }),
+      });
       outputs.push({ name: `${stem}${suffix}${outExt}`, buf: outBuf });
     }
+
+    const { total, failed, lastError } = ctx.stats;
+    if (total === 0) throw new Error('翻訳対象の日本語テキストが見つかりませんでした');
+    if (failed >= total) throw new Error(`1件も翻訳できませんでした（${lastError || '原因不明'}）。ファイルは出力しません`);
 
     let resultBuf, resultName, resultType;
     if (outputs.length === 1) {
@@ -736,8 +794,8 @@ app.post('/api/translate-doc', requireSession, rateLimit, upload.single('file'),
       resultType = 'application/zip';
     }
 
-    console.log(`[translate-doc] done ext=${ext} langs=${langs.join(',')} size=${resultBuf.length}`);
-    sse({ done: true, file: resultBuf.toString('base64'), name: resultName, type: resultType });
+    console.log(`[translate-doc] done ext=${ext} langs=${langs.join(',')} size=${resultBuf.length} total=${total} untranslated=${failed}`);
+    sse({ done: true, file: resultBuf.toString('base64'), name: resultName, type: resultType, total, untranslated: failed });
     res.end();
 
   } catch (err) {
@@ -859,7 +917,10 @@ app.use((err, req, res, next) => {
 /* ── サーバー起動 ── */
 const PORT = process.env.PORT || 3000;
 
-if (IS_PROD) {
+if (require.main !== module) {
+  // テストからの require 時は起動せず、検証対象の関数だけ公開する
+  module.exports = { translateDocument, translateDocTexts, newDocCtx, extractExcelTexts, extractDocxTexts, extractPptxTexts, isUntranslated, hasJapanese };
+} else if (IS_PROD) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ 同時通訳サーバー起動 (port ${PORT})`);
     console.log(`   Claude API: ${anthropic ? '有効' : '未設定'}`);
