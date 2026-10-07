@@ -122,6 +122,7 @@ app.get('/health', (req, res) => {
     anthropic: !!process.env.ANTHROPIC_API_KEY,
     openai:    !!process.env.OPENAI_API_KEY,
     sessions:  sessions.size,
+    models:    modelStatus,
   });
 });
 
@@ -914,8 +915,30 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: msg });
 });
 
+/* ── モデル疎通チェック（原因切り分け用。結果は /health の models に出る） ── */
+const modelStatus = {};
+async function probeModels() {
+  if (!anthropic) return;
+  for (const model of DOC_MODELS) {
+    const t0 = Date.now();
+    try {
+      await anthropic.messages.create({
+        model, max_tokens: 8, messages: [{ role: 'user', content: 'Reply with: ok' }],
+      }, { timeout: 15000 });
+      modelStatus[model] = { ok: true, ms: Date.now() - t0, at: new Date().toISOString() };
+    } catch (e) {
+      modelStatus[model] = { ok: false, error: `${e.status || ''} ${(e.message || '').slice(0, 160)}`.trim(), at: new Date().toISOString() };
+      console.warn(`[probe] model=${model} NG: ${modelStatus[model].error}`);
+    }
+  }
+}
+
 /* ── サーバー起動 ── */
 const PORT = process.env.PORT || 3000;
+if (require.main === module) {
+  probeModels();
+  setInterval(probeModels, 30 * 60 * 1000).unref();
+}
 
 if (require.main !== module) {
   // テストからの require 時は起動せず、検証対象の関数だけ公開する
